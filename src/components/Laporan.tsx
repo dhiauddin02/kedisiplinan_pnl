@@ -43,7 +43,7 @@ export default function Laporan() {
           user:users(*),
           batch:batch(*, periode:periode(*))
         `)
-        .eq('id_batch', parseInt(selectedBatch));
+        .eq('id_batch', selectedBatch);
 
       if (error) throw error;
 
@@ -86,6 +86,12 @@ export default function Laporan() {
       return;
     }
 
+    const fontteToken = import.meta.env.VITE_FONNTE_TOKEN;
+    if (!fontteToken) {
+      setMessage({ type: 'error', text: 'Token Fonnte belum dikonfigurasi untuk pengiriman WhatsApp' });
+      return;
+    }
+
     setLoading(true);
     try {
       // Send report to all parents and supervisors (as per activity diagram)
@@ -95,7 +101,7 @@ export default function Laporan() {
         const reportMessage = generateReportMessage(result, report);
         
         // Send to parent
-        if (result.user.no_wa_wali) {
+        if (result.user?.no_wa_wali) {
           try {
             await fontteAPI.sendWhatsApp(result.user.no_wa_wali, reportMessage);
             successCount++;
@@ -105,7 +111,7 @@ export default function Laporan() {
         }
 
         // Send to supervisor
-        if (result.user.no_wa_dosen_pembimbing) {
+        if (result.user?.no_wa_dosen_pembimbing) {
           try {
             await fontteAPI.sendWhatsApp(result.user.no_wa_dosen_pembimbing, reportMessage);
             successCount++;
@@ -131,8 +137,8 @@ Periode: ${report.batchInfo.periode.nama_periode} ${report.batchInfo.periode.tah
 Batch: ${report.batchInfo.nama_batch}
 
 DATA MAHASISWA:
-Nama: ${result.user.nama}
-NIM: ${result.user.nim}
+Nama: ${result.user?.nama || result.nama_mahasiswa}
+NIM: ${result.user?.nim || result.nim}
 Tingkat/Kelas: ${result.tingkat}/${result.kelas}
 Total Ketidakhadiran: ${result.total_a}
 Status Kedisiplinan: ${result.kedisiplinan}
@@ -197,7 +203,7 @@ Bagian Akademik`;
             >
               <option value="">Pilih Batch</option>
               {batches
-                .filter(batch => !selectedPeriod || batch.id_periode == selectedPeriod)
+                .filter(batch => !selectedPeriod || batch.id_periode === selectedPeriod)
                 .map(batch => (
                 <option key={batch.id} value={batch.id}>
                   {batch.nama_batch}
@@ -367,8 +373,8 @@ Bagian Akademik`;
                         <tr key={index} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div>
-                              <div className="text-sm font-medium text-gray-900">{result.user?.nama}</div>
-                              <div className="text-sm text-gray-500">{result.user?.nim}</div>
+                              <div className="text-sm font-medium text-gray-900">{result.user?.nama || result.nama_mahasiswa}</div>
+                              <div className="text-sm text-gray-500">{result.user?.nim || result.nim}</div>
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">

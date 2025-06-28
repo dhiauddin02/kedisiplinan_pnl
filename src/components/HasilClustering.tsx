@@ -13,7 +13,7 @@ export default function HasilClustering() {
   const [showAddPeriodModal, setShowAddPeriodModal] = useState(false);
   const [showAddBatchModal, setShowAddBatchModal] = useState(false);
   const [showResultsModal, setShowResultsModal] = useState(false);
-  const [newPeriod, setNewPeriod] = useState({ nama_periode: '', tahun_ajaran: '' });
+  const [newPeriod, setNewPeriod] = useState({ nama_periode: '', tahun_ajaran: '', semester: '' });
   const [newBatch, setNewBatch] = useState('');
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -48,7 +48,7 @@ export default function HasilClustering() {
 
       setMessage({ type: 'success', text: 'Periode berhasil ditambahkan' });
       setShowAddPeriodModal(false);
-      setNewPeriod({ nama_periode: '', tahun_ajaran: '' });
+      setNewPeriod({ nama_periode: '', tahun_ajaran: '', semester: '' });
       loadPeriodsAndBatches();
     } catch (error) {
       console.error('Error adding period:', error);
@@ -67,7 +67,7 @@ export default function HasilClustering() {
         .from('batch')
         .insert({
           nama_batch: newBatch,
-          id_periode: parseInt(selectedPeriod),
+          id_periode: selectedPeriod,
           tgl_batch: new Date().toISOString().split('T')[0]
         });
 
@@ -98,7 +98,7 @@ export default function HasilClustering() {
           user:users(*),
           batch:batch(*, periode:periode(*))
         `)
-        .eq('id_batch', parseInt(selectedBatch));
+        .eq('id_batch', selectedBatch);
 
       if (error) throw error;
 
@@ -115,7 +115,7 @@ export default function HasilClustering() {
   const generateMessage = (result: any) => {
     const periode = result.batch?.periode;
     return `Kepada Yth.
-Sdr. ${result.user.nama}
+Sdr. ${result.user?.nama || result.nama_mahasiswa}
 Mahasiswa ${result.tingkat}, Kelas ${result.kelas}
 Politeknik Negeri Lhokseumawe
 di Tempat
@@ -124,8 +124,8 @@ Dengan hormat,
 Berdasarkan hasil evaluasi rekapitulasi absensi mahasiswa untuk Semester ${periode?.nama_periode} Tahun Akademik ${periode?.tahun_ajaran}, bersama ini kami sampaikan informasi terkait kehadiran Anda sebagai berikut:
 
 Keterangan	Nilai
-Nama Mahasiswa	${result.user.nama}
-NIM	${result.user.nim}
+Nama Mahasiswa	${result.user?.nama || result.nama_mahasiswa}
+NIM	${result.user?.nim || result.nim}
 Tingkat / Kelas	${result.tingkat} / ${result.kelas}
 Total Ketidakhadiran	${result.total_a}
 Jumlah Pertemuan (JP)	${result.jp}
@@ -150,6 +150,12 @@ Politeknik Negeri Lhokseumawe`;
       return;
     }
 
+    const fontteToken = import.meta.env.VITE_FONNTE_TOKEN;
+    if (!fontteToken) {
+      setMessage({ type: 'error', text: 'Token Fonnte belum dikonfigurasi' });
+      return;
+    }
+
     setLoading(true);
     let successCount = 0;
 
@@ -158,7 +164,7 @@ Politeknik Negeri Lhokseumawe`;
         const message = generateMessage(result);
         
         // Send to parent (wali)
-        if (result.user.no_wa_wali) {
+        if (result.user?.no_wa_wali) {
           try {
             await fontteAPI.sendWhatsApp(result.user.no_wa_wali, message);
             successCount++;
@@ -168,7 +174,7 @@ Politeknik Negeri Lhokseumawe`;
         }
 
         // Send to supervisor (dosen pembimbing)
-        if (result.user.no_wa_dosen_pembimbing) {
+        if (result.user?.no_wa_dosen_pembimbing) {
           try {
             await fontteAPI.sendWhatsApp(result.user.no_wa_dosen_pembimbing, message);
             successCount++;
@@ -279,7 +285,7 @@ Politeknik Negeri Lhokseumawe`;
             >
               <option value="">Pilih Batch</option>
               {batches
-                .filter(batch => !selectedPeriod || batch.id_periode == selectedPeriod)
+                .filter(batch => !selectedPeriod || batch.id_periode === selectedPeriod)
                 .map(batch => (
                 <option key={batch.id} value={batch.id}>
                   {batch.nama_batch}
@@ -299,6 +305,9 @@ Politeknik Negeri Lhokseumawe`;
               <div key={period.id} className="p-3 bg-gray-50 rounded-lg">
                 <div className="font-medium text-gray-900">{period.nama_periode}</div>
                 <div className="text-sm text-gray-500">{period.tahun_ajaran}</div>
+                {period.semester && (
+                  <div className="text-xs text-gray-400">Semester: {period.semester}</div>
+                )}
               </div>
             ))}
           </div>
@@ -312,6 +321,9 @@ Politeknik Negeri Lhokseumawe`;
                 <div className="font-medium text-gray-900">{batch.nama_batch}</div>
                 <div className="text-sm text-gray-500">
                   {batch.periode?.nama_periode} {batch.periode?.tahun_ajaran}
+                </div>
+                <div className="text-xs text-gray-400">
+                  {new Date(batch.tgl_batch).toLocaleDateString('id-ID')}
                 </div>
               </div>
             ))}
@@ -345,6 +357,17 @@ Politeknik Negeri Lhokseumawe`;
                   onChange={(e) => setNewPeriod({...newPeriod, tahun_ajaran: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   placeholder="contoh: 2024/2025"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Semester (Opsional)</label>
+                <input
+                  type="text"
+                  value={newPeriod.semester}
+                  onChange={(e) => setNewPeriod({...newPeriod, semester: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="contoh: Ganjil"
                 />
               </div>
             </div>
@@ -435,8 +458,8 @@ Politeknik Negeri Lhokseumawe`;
                     <tr key={index} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div>
-                          <div className="text-sm font-medium text-gray-900">{result.user?.nama}</div>
-                          <div className="text-sm text-gray-500">{result.user?.nim}</div>
+                          <div className="text-sm font-medium text-gray-900">{result.user?.nama || result.nama_mahasiswa}</div>
+                          <div className="text-sm text-gray-500">{result.user?.nim || result.nim}</div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
