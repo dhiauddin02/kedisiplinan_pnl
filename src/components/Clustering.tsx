@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 export default function Clustering() {
   const [file, setFile] = useState<File | null>(null);
   const [sheetName, setSheetName] = useState('REKAP-TK1');
+  
   const [loading, setLoading] = useState(false);
   const [clusteringResults, setClusteringResults] = useState<any[]>([]);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
