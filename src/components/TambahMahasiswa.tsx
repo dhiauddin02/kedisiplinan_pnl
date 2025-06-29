@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings, Bug } from 'lucide-react';
 import { clusteringAPI } from '../lib/api';
-import { registerUser, debugAdminStatus, storeAdminSession, restoreAdminSession } from '../lib/auth';
+import { registerUserWithoutSessionChange, debugAdminStatus, getCurrentUser } from '../lib/auth';
 import { supabase } from '../lib/supabase';
-import { processBatch, generateEmail } from '../lib/utils';
+import { generateEmail } from '../lib/utils';
 
 export default function TambahMahasiswa() {
   const [file, setFile] = useState<File | null>(null);
@@ -108,8 +108,8 @@ export default function TambahMahasiswa() {
       // Generate email
       const email = generateEmail(student.nama, student.nim);
 
-      // Register the student
-      const newUser = await registerUser({
+      // Register the student using the new function that doesn't change session
+      const newUser = await registerUserWithoutSessionChange({
         email: email,
         password: student.nim, // Use NIM as default password
         nama: student.nama,
@@ -154,17 +154,16 @@ export default function TambahMahasiswa() {
       return;
     }
 
-    setLoading(true);
-    setProgress({ current: 0, total: processedData.length });
-    setMessage({ type: 'info', text: 'Menyimpan sesi admin dan memulai penambahan mahasiswa...' });
-
-    // Store admin session before starting registration
-    const adminSession = await storeAdminSession();
-    if (!adminSession) {
-      setMessage({ type: 'error', text: 'Gagal menyimpan sesi admin. Pastikan Anda login sebagai admin.' });
-      setLoading(false);
+    // Verify admin status before starting
+    const currentUser = getCurrentUser();
+    if (!currentUser || currentUser.role !== 'admin') {
+      setMessage({ type: 'error', text: 'Anda harus login sebagai admin untuk menambah mahasiswa' });
       return;
     }
+
+    setLoading(true);
+    setProgress({ current: 0, total: processedData.length });
+    setMessage({ type: 'info', text: 'Memulai penambahan mahasiswa dengan mempertahankan sesi admin...' });
 
     let addedCount = 0;
     let existingCount = 0;
@@ -175,7 +174,7 @@ export default function TambahMahasiswa() {
     const errorStudents: string[] = [];
 
     try {
-      // Process students one by one with session restoration
+      // Process students one by one
       for (let i = 0; i < processedData.length; i++) {
         const student = processedData[i];
         
@@ -184,9 +183,6 @@ export default function TambahMahasiswa() {
         setMessage({ type: 'info', text: `Memproses mahasiswa ${i + 1}/${processedData.length}: ${student.nama}` });
         
         const result = await registerSingleStudent(student);
-        
-        // Restore admin session after each registration
-        await restoreAdminSession();
         
         if (result.success) {
           addedCount++;
@@ -260,10 +256,17 @@ export default function TambahMahasiswa() {
       console.error('Error adding students:', error);
       setMessage({ type: 'error', text: 'Gagal menambahkan data mahasiswa' });
     } finally {
-      // Ensure admin session is restored at the end
-      await restoreAdminSession();
       setLoading(false);
       setProgress({ current: 0, total: 0 });
+      
+      // Verify admin session is still active
+      const finalUser = getCurrentUser();
+      if (finalUser?.role === 'admin') {
+        console.log('Admin session maintained successfully');
+      } else {
+        console.warn('Admin session may have been lost');
+        setMessage({ type: 'error', text: 'Sesi admin mungkin telah berubah. Silakan refresh halaman dan login kembali.' });
+      }
     }
   };
 
@@ -316,6 +319,18 @@ export default function TambahMahasiswa() {
         debugOutput += `\nRLS Policy Check:\n`;
         const isCurrentUserAdmin = adminUsers?.some(admin => admin.id === user.id);
         debugOutput += `- Current user is admin: ${isCurrentUserAdmin}\n`;
+        
+        // Check localStorage user
+        const localUser = getCurrentUser();
+        debugOutput += `\nLocalStorage User:\n`;
+        if (localUser) {
+          debugOutput += `- ID: ${localUser.id}\n`;
+          debugOutput += `- NIM: ${localUser.nim}\n`;
+          debugOutput += `- Role: ${localUser.role}\n`;
+          debugOutput += `- Level: ${localUser.level_user}\n`;
+        } else {
+          debugOutput += `- No user in localStorage\n`;
+        }
         
       } else {
         debugOutput += 'No authenticated user found\n';
@@ -403,7 +418,7 @@ export default function TambahMahasiswa() {
             ></div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Memproses mahasiswa secara berurutan dengan pemulihan sesi admin setiap kali...
+            Memproses mahasiswa dengan mempertahankan sesi admin menggunakan Supabase Admin API...
           </p>
         </div>
       )}
@@ -495,7 +510,7 @@ export default function TambahMahasiswa() {
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-700">
               <strong>Total:</strong> {processedData.length} mahasiswa siap ditambahkan. 
-              Sistem akan memproses setiap mahasiswa secara berurutan dengan pemulihan sesi admin setiap kali.
+              Sistem akan menggunakan Supabase Admin API untuk mempertahankan sesi admin Anda.
             </p>
           </div>
 
@@ -543,7 +558,7 @@ export default function TambahMahasiswa() {
                 <li>Sistem akan memeriksa mahasiswa yang sudah terdaftar sebelum menambahkan</li>
                 <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
                 <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
-                <li><strong>Sesi Admin:</strong> Sistem akan menyimpan dan memulihkan sesi admin setiap kali</li>
+                <li><strong>Sesi Admin Aman:</strong> Menggunakan Supabase Admin API untuk mempertahankan sesi admin</li>
                 <li>Progress akan ditampilkan selama proses penambahan data</li>
                 <li>Semua data mahasiswa akan ditampilkan dalam tabel untuk review sebelum ditambahkan</li>
                 <li><strong>Debug Check:</strong> Gunakan tombol Debug Check jika mengalami masalah RLS</li>

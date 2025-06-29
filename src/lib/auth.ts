@@ -18,6 +18,7 @@ export interface AppUser {
 
 // Store admin session for restoration
 let adminSession: Session | null = null;
+let adminUser: AppUser | null = null;
 
 export const login = async (nim: string, password: string): Promise<AppUser | null> => {
   try {
@@ -55,12 +56,6 @@ export const login = async (nim: string, password: string): Promise<AppUser | nu
 
     console.log('Authentication successful:', authData.user);
 
-    // Store admin session if this is an admin login
-    if (userData.role === 'admin' && authData.session) {
-      adminSession = authData.session;
-      console.log('Admin session stored for restoration');
-    }
-
     // Return combined user data
     const appUser: AppUser = {
       id: authData.user.id,
@@ -76,6 +71,13 @@ export const login = async (nim: string, password: string): Promise<AppUser | nu
       tingkat: userData.tingkat,
       kelas: userData.kelas,
     };
+
+    // Store admin session and user if this is an admin login
+    if (userData.role === 'admin' && authData.session) {
+      adminSession = authData.session;
+      adminUser = appUser;
+      console.log('Admin session and user stored for restoration');
+    }
 
     // Store user data in localStorage for easy access
     localStorage.setItem('user', JSON.stringify(appUser));
@@ -93,10 +95,12 @@ export const logout = async () => {
     await supabase.auth.signOut();
     localStorage.removeItem('user');
     adminSession = null; // Clear stored admin session
+    adminUser = null; // Clear stored admin user
   } catch (error) {
     console.error('Logout error:', error);
     localStorage.removeItem('user');
     adminSession = null;
+    adminUser = null;
   }
 };
 
@@ -135,6 +139,7 @@ export const storeAdminSession = async (): Promise<Session | null> => {
       const currentUser = getCurrentUser();
       if (currentUser?.role === 'admin') {
         adminSession = session;
+        adminUser = currentUser;
         console.log('Admin session stored:', session.user.id);
         return session;
       }
@@ -149,13 +154,15 @@ export const storeAdminSession = async (): Promise<Session | null> => {
 // Function to restore admin session after registration operations
 export const restoreAdminSession = async (): Promise<boolean> => {
   try {
-    if (!adminSession) {
-      console.log('No admin session to restore');
+    if (!adminSession || !adminUser) {
+      console.log('No admin session or user to restore');
       return false;
     }
 
+    console.log('Attempting to restore admin session...');
+
     // Set the session back to admin
-    const { error } = await supabase.auth.setSession({
+    const { data, error } = await supabase.auth.setSession({
       access_token: adminSession.access_token,
       refresh_token: adminSession.refresh_token
     });
@@ -164,6 +171,9 @@ export const restoreAdminSession = async (): Promise<boolean> => {
       console.error('Error restoring admin session:', error);
       return false;
     }
+
+    // Update localStorage with admin user data
+    localStorage.setItem('user', JSON.stringify(adminUser));
 
     console.log('Admin session restored successfully');
     return true;
@@ -186,7 +196,8 @@ const generateSecurePassword = (nim: string): string => {
   }
 };
 
-export const registerUser = async (userData: {
+// New function to register user without affecting current session
+export const registerUserWithoutSessionChange = async (userData: {
   email: string;
   password: string;
   nama: string;
@@ -202,6 +213,10 @@ export const registerUser = async (userData: {
 }): Promise<AppUser | null> => {
   try {
     console.log('Starting registration for:', userData.nim);
+
+    // Store current session before any auth operations
+    const currentSession = await supabase.auth.getSession();
+    const currentUser = getCurrentUser();
 
     // Generate secure password
     const securePassword = generateSecurePassword(userData.password);
@@ -233,25 +248,16 @@ export const registerUser = async (userData: {
       if (signInError) {
         console.log('Sign in failed, user might not exist in auth.users, creating...');
         
-        // Create user in auth.users
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        // Create user in auth.users using admin client
+        const { data: signUpData, error: signUpError } = await supabase.auth.admin.createUser({
           email: userData.email,
           password: securePassword,
+          email_confirm: true
         });
 
         if (signUpError) {
-          console.error('Auth signup error:', signUpError);
-          if (signUpError.message.includes('User already registered')) {
-            // User exists in auth but sign in failed, try to get user ID
-            const { data: { user: authUser } } = await supabase.auth.getUser();
-            if (authUser) {
-              authUserId = authUser.id;
-            } else {
-              throw new Error('Cannot get auth user ID');
-            }
-          } else {
-            throw signUpError;
-          }
+          console.error('Admin create user error:', signUpError);
+          throw signUpError;
         } else {
           authUserId = signUpData.user!.id;
         }
@@ -280,34 +286,21 @@ export const registerUser = async (userData: {
     } else {
       console.log('Creating new user...');
       
-      // Create user in Supabase Auth first
-      const { data: authData, error: authError } = await supabase.auth.signUp({
+      // Create user in Supabase Auth using admin client to avoid session change
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
         email: userData.email,
         password: securePassword,
+        email_confirm: true
       });
 
       if (authError) {
-        console.error('Auth signup error:', authError);
-        if (authError.message.includes('User already registered')) {
-          // User exists in auth, try to sign in to get ID
-          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-            email: userData.email,
-            password: securePassword,
-          });
-
-          if (signInError) {
-            throw new Error('User exists in auth but cannot sign in: ' + signInError.message);
-          }
-
-          authUserId = signInData.user!.id;
-        } else {
-          throw authError;
-        }
+        console.error('Auth admin create user error:', authError);
+        throw authError;
       } else {
         authUserId = authData.user!.id;
       }
 
-      console.log('Auth user created/found with ID:', authUserId);
+      console.log('Auth user created with ID:', authUserId);
 
       // Insert user data into our custom users table
       const { error: dbError } = await supabase
@@ -335,6 +328,17 @@ export const registerUser = async (userData: {
       console.log('Created new user with ID:', authUserId);
     }
 
+    // Restore the original session if it was an admin session
+    if (currentSession.data.session && currentUser?.role === 'admin') {
+      console.log('Restoring admin session after user creation...');
+      await supabase.auth.setSession({
+        access_token: currentSession.data.session.access_token,
+        refresh_token: currentSession.data.session.refresh_token
+      });
+      localStorage.setItem('user', JSON.stringify(currentUser));
+      console.log('Admin session restored');
+    }
+
     const appUser: AppUser = {
       id: authUserId,
       email: userData.email,
@@ -354,7 +358,50 @@ export const registerUser = async (userData: {
     return appUser;
   } catch (error) {
     console.error('Registration error:', error);
+    
+    // Ensure admin session is restored even if there's an error
+    const currentUser = getCurrentUser();
+    if (adminSession && adminUser && currentUser?.role === 'admin') {
+      console.log('Restoring admin session after error...');
+      await supabase.auth.setSession({
+        access_token: adminSession.access_token,
+        refresh_token: adminSession.refresh_token
+      });
+      localStorage.setItem('user', JSON.stringify(adminUser));
+    }
+    
     return null;
+  }
+};
+
+// Keep the original registerUser function for backward compatibility
+export const registerUser = registerUserWithoutSessionChange;
+
+// Debug function to check admin status
+export const debugAdminStatus = async (): Promise<void> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    console.log('Current auth user:', user);
+    
+    if (user) {
+      const { data: userData } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      console.log('Current user data:', userData);
+      
+      // Check if user can see admin users
+      const { data: adminUsers } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'admin');
+      
+      console.log('Visible admin users:', adminUsers);
+    }
+  } catch (error) {
+    console.error('Debug error:', error);
   }
 };
 
@@ -401,33 +448,5 @@ export const checkAuth = async (): Promise<AppUser | null> => {
     console.error('Auth check error:', error);
     localStorage.removeItem('user');
     return null;
-  }
-};
-
-// Debug function to check admin status
-export const debugAdminStatus = async (): Promise<void> => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    console.log('Current auth user:', user);
-    
-    if (user) {
-      const { data: userData } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', user.id)
-        .single();
-      
-      console.log('Current user data:', userData);
-      
-      // Check if user can see admin users
-      const { data: adminUsers } = await supabase
-        .from('users')
-        .select('*')
-        .eq('role', 'admin');
-      
-      console.log('Visible admin users:', adminUsers);
-    }
-  } catch (error) {
-    console.error('Debug error:', error);
   }
 };
