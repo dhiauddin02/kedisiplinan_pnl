@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings } from 'lucide-react';
 import { clusteringAPI } from '../lib/api';
 import { registerUser } from '../lib/auth';
+import { supabase } from '../lib/supabase';
 
 export default function TambahMahasiswa() {
   const [file, setFile] = useState<File | null>(null);
