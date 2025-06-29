@@ -16,6 +16,14 @@ export interface AppUser {
   kelas?: string;
 }
 
+// Custom error for user already registered
+export class UserAlreadyRegisteredError extends Error {
+  constructor(message: string = 'User already registered') {
+    super(message);
+    this.name = 'UserAlreadyRegisteredError';
+  }
+}
+
 export const login = async (nim: string, password: string): Promise<AppUser | null> => {
   try {
     console.log('Starting login process for NIM:', nim);
@@ -186,14 +194,44 @@ export const registerUser = async (userData: {
   kelas?: string;
 }): Promise<AppUser | null> => {
   try {
+    // Check if user already exists in our database
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id, nim, email')
+      .eq('nim', userData.nim)
+      .maybeSingle();
+
+    if (existingUser) {
+      throw new UserAlreadyRegisteredError(`User with NIM ${userData.nim} already exists`);
+    }
+
+    // Check if email already exists in auth.users
+    const { data: existingAuthUser } = await supabase
+      .from('users')
+      .select('id, email')
+      .eq('email', userData.email)
+      .maybeSingle();
+
+    if (existingAuthUser) {
+      throw new UserAlreadyRegisteredError(`User with email ${userData.email} already exists`);
+    }
+
     // Create user in Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email: userData.email,
       password: userData.password,
     });
 
-    if (authError || !authData.user) {
+    if (authError) {
+      // Check if it's a user already registered error
+      if (authError.message.includes('already registered') || authError.message.includes('already exists')) {
+        throw new UserAlreadyRegisteredError(authError.message);
+      }
       throw authError;
+    }
+
+    if (!authData.user) {
+      throw new Error('No user returned from auth signup');
     }
 
     // Insert user data into our custom users table
@@ -238,6 +276,17 @@ export const registerUser = async (userData: {
     return appUser;
   } catch (error) {
     console.error('Registration error:', error);
+    
+    // Re-throw UserAlreadyRegisteredError as is
+    if (error instanceof UserAlreadyRegisteredError) {
+      throw error;
+    }
+    
+    // Check for rate limit errors
+    if (error instanceof Error && error.message.includes('rate limit')) {
+      throw new Error('Rate limit reached. Please wait a moment before trying again.');
+    }
+    
     return null;
   }
 };

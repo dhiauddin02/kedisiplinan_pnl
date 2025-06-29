@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings } from 'lucide-react';
 import { clusteringAPI } from '../lib/api';
-import { registerUser } from '../lib/auth';
+import { registerUser, UserAlreadyRegisteredError } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 
+// Utility function to create delay
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 export default function TambahMahasiswa() {
   const [file, setFile] = useState<File | null>(null);
@@ -11,6 +13,7 @@ export default function TambahMahasiswa() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
   const [processedData, setProcessedData] = useState<any[]>([]);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
 
   const sheetOptions = [
     'REKAP-TK1', 'REKAP-TK2', 'REKAP-TK3', 'REKAP-TK4'
@@ -100,6 +103,7 @@ export default function TambahMahasiswa() {
     }
 
     setLoading(true);
+    setProgress({ current: 0, total: processedData.length });
     setMessage({ type: 'info', text: 'Menambahkan data mahasiswa...' });
 
     let addedCount = 0;
@@ -110,7 +114,10 @@ export default function TambahMahasiswa() {
     const errorStudents: string[] = [];
 
     try {
-      for (const student of processedData) {
+      for (let i = 0; i < processedData.length; i++) {
+        const student = processedData[i];
+        setProgress({ current: i + 1, total: processedData.length });
+        
         try {
           // Generate email
           const email = generateEmail(student.nama, student.nim);
@@ -132,39 +139,65 @@ export default function TambahMahasiswa() {
             addedStudents.push(`${student.nim} - ${student.nama}`);
             console.log(`Successfully added student ${student.nim}`);
           } else {
-            // Check if user already exists
-            const { data: existingUser } = await supabase
-              .from('users')
-              .select('nim, nama')
-              .eq('nim', student.nim)
-              .maybeSingle();
-
-            if (existingUser) {
-              existingCount++;
-              existingStudents.push(`${student.nim} - ${student.nama}`);
-              console.log(`Student ${student.nim} already exists`);
-            } else {
-              errorCount++;
-              errorStudents.push(`${student.nim} - ${student.nama}`);
-              console.log(`Failed to add student ${student.nim}`);
-            }
+            errorCount++;
+            errorStudents.push(`${student.nim} - ${student.nama}`);
+            console.log(`Failed to add student ${student.nim}`);
           }
 
         } catch (error) {
           console.error('Error processing student:', error);
           
-          // Check if it's a duplicate email error
-          if (error instanceof Error && error.message.includes('already registered')) {
+          // Check if it's a UserAlreadyRegisteredError
+          if (error instanceof UserAlreadyRegisteredError) {
             existingCount++;
             existingStudents.push(`${student.nim} - ${student.nama}`);
+            console.log(`Student ${student.nim} already exists`);
+          } else if (error instanceof Error && error.message.includes('rate limit')) {
+            // If rate limit error, add longer delay and retry once
+            console.log('Rate limit reached, waiting longer...');
+            await delay(2000); // Wait 2 seconds
+            
+            try {
+              const email = generateEmail(student.nama, student.nim);
+              const newUser = await registerUser({
+                email: email,
+                password: student.nim,
+                nama: student.nama,
+                nim: student.nim,
+                role: 'mahasiswa',
+                level_user: 0,
+                tingkat: student.tingkat,
+                kelas: student.kelas
+              });
+
+              if (newUser) {
+                addedCount++;
+                addedStudents.push(`${student.nim} - ${student.nama}`);
+              } else {
+                errorCount++;
+                errorStudents.push(`${student.nim} - ${student.nama}`);
+              }
+            } catch (retryError) {
+              errorCount++;
+              errorStudents.push(`${student.nim} - ${student.nama}`);
+              console.error(`Retry failed for student ${student.nim}:`, retryError);
+            }
           } else {
             errorCount++;
             errorStudents.push(`${student.nim} - ${student.nama}`);
           }
         }
+
+        // Add delay between each request to avoid rate limiting
+        // Longer delay for every 5th request
+        if ((i + 1) % 5 === 0) {
+          await delay(1000); // 1 second delay every 5 requests
+        } else {
+          await delay(300); // 300ms delay between requests
+        }
       }
 
-      // Show results
+      // Show detailed results
       let resultMessage = '';
       if (addedCount > 0) {
         resultMessage += `✅ ${addedCount} mahasiswa berhasil ditambahkan. `;
@@ -192,6 +225,7 @@ export default function TambahMahasiswa() {
       setMessage({ type: 'error', text: 'Gagal menambahkan data mahasiswa' });
     } finally {
       setLoading(false);
+      setProgress({ current: 0, total: 0 });
     }
   };
 
@@ -230,6 +264,22 @@ export default function TambahMahasiswa() {
             {message.type === 'error' && <AlertCircle className="w-5 h-5 mr-2" />}
             {message.type === 'info' && <AlertCircle className="w-5 h-5 mr-2" />}
             {message.text}
+          </div>
+        </div>
+      )}
+
+      {/* Progress Bar */}
+      {loading && progress.total > 0 && (
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700">Progress</span>
+            <span className="text-sm text-gray-500">{progress.current} / {progress.total}</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${(progress.current / progress.total) * 100}%` }}
+            ></div>
           </div>
         </div>
       )}
@@ -287,7 +337,7 @@ export default function TambahMahasiswa() {
             disabled={!file || loading || !apiConfigured}
             className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
           >
-            {loading ? (
+            {loading && progress.total === 0 ? (
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
             ) : (
               <>
@@ -321,6 +371,9 @@ export default function TambahMahasiswa() {
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-700">
               <strong>Total:</strong> {processedData.length} mahasiswa akan ditambahkan ke sistem.
+            </p>
+            <p className="text-xs text-blue-600 mt-1">
+              <strong>Catatan:</strong> Proses akan berjalan dengan delay untuk menghindari rate limit. Estimasi waktu: {Math.ceil(processedData.length * 0.5)} detik.
             </p>
           </div>
 
@@ -369,6 +422,7 @@ export default function TambahMahasiswa() {
                 <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
                 <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
                 <li>Sistem akan membuat akun autentikasi lengkap untuk setiap mahasiswa</li>
+                <li><strong>Proses akan berjalan dengan delay untuk menghindari rate limit dari Supabase</strong></li>
               </ul>
             </div>
           </div>
