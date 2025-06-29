@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings } from 'lucide-react';
 import { clusteringAPI } from '../lib/api';
-import { supabase } from '../lib/supabase';
+import { registerUser } from '../lib/auth';
 
 export default function TambahMahasiswa() {
   const [file, setFile] = useState<File | null>(null);
@@ -102,59 +102,63 @@ export default function TambahMahasiswa() {
 
     let addedCount = 0;
     let existingCount = 0;
+    let errorCount = 0;
     const addedStudents: string[] = [];
     const existingStudents: string[] = [];
+    const errorStudents: string[] = [];
 
     try {
       for (const student of processedData) {
         try {
-          // Check if student already exists
-          const { data: existingUser, error: checkError } = await supabase
-            .from('users')
-            .select('nim, nama')
-            .eq('nim', student.nim)
-            .maybeSingle();
-
-          if (checkError && checkError.code !== 'PGRST116') {
-            console.error('Error checking existing user:', checkError);
-            continue;
-          }
-
-          if (existingUser) {
-            existingCount++;
-            existingStudents.push(`${student.nim} - ${student.nama}`);
-            console.log(`Student ${student.nim} already exists, skipping`);
-            continue;
-          }
-
           // Generate email
           const email = generateEmail(student.nama, student.nim);
 
-          // Insert new student (placeholder record)
-          const { error: insertError } = await supabase
-            .from('users')
-            .insert({
-              id: crypto.randomUUID(), // Temporary UUID, will be replaced when they login
-              nim: student.nim,
-              nama: student.nama,
-              email: email,
-              role: 'mahasiswa',
-              tingkat: student.tingkat,
-              kelas: student.kelas,
-              level_user: 0
-            });
+          // Use registerUser function to properly create user in both auth.users and public.users
+          const newUser = await registerUser({
+            email: email,
+            password: student.nim, // Use NIM as default password
+            nama: student.nama,
+            nim: student.nim,
+            role: 'mahasiswa',
+            level_user: 0,
+            tingkat: student.tingkat,
+            kelas: student.kelas
+          });
 
-          if (insertError) {
-            console.error('Error inserting student:', insertError);
-            continue;
+          if (newUser) {
+            addedCount++;
+            addedStudents.push(`${student.nim} - ${student.nama}`);
+            console.log(`Successfully added student ${student.nim}`);
+          } else {
+            // Check if user already exists
+            const { data: existingUser } = await supabase
+              .from('users')
+              .select('nim, nama')
+              .eq('nim', student.nim)
+              .maybeSingle();
+
+            if (existingUser) {
+              existingCount++;
+              existingStudents.push(`${student.nim} - ${student.nama}`);
+              console.log(`Student ${student.nim} already exists`);
+            } else {
+              errorCount++;
+              errorStudents.push(`${student.nim} - ${student.nama}`);
+              console.log(`Failed to add student ${student.nim}`);
+            }
           }
-
-          addedCount++;
-          addedStudents.push(`${student.nim} - ${student.nama}`);
-          console.log(`Successfully added student ${student.nim}`);
 
         } catch (error) {
           console.error('Error processing student:', error);
+          
+          // Check if it's a duplicate email error
+          if (error instanceof Error && error.message.includes('already registered')) {
+            existingCount++;
+            existingStudents.push(`${student.nim} - ${student.nama}`);
+          } else {
+            errorCount++;
+            errorStudents.push(`${student.nim} - ${student.nama}`);
+          }
         }
       }
 
@@ -164,16 +168,19 @@ export default function TambahMahasiswa() {
         resultMessage += `✅ ${addedCount} mahasiswa berhasil ditambahkan. `;
       }
       if (existingCount > 0) {
-        resultMessage += `ℹ️ ${existingCount} mahasiswa sudah terdaftar sebelumnya.`;
+        resultMessage += `ℹ️ ${existingCount} mahasiswa sudah terdaftar sebelumnya. `;
+      }
+      if (errorCount > 0) {
+        resultMessage += `❌ ${errorCount} mahasiswa gagal ditambahkan.`;
       }
 
       setMessage({ 
-        type: addedCount > 0 ? 'success' : 'info', 
+        type: addedCount > 0 ? 'success' : existingCount > 0 ? 'info' : 'error', 
         text: resultMessage || 'Tidak ada mahasiswa yang ditambahkan'
       });
 
-      // Clear processed data after successful addition
-      if (addedCount > 0) {
+      // Clear processed data after processing
+      if (addedCount > 0 || existingCount > 0) {
         setProcessedData([]);
         setFile(null);
       }
@@ -359,6 +366,7 @@ export default function TambahMahasiswa() {
                 <li>Mahasiswa yang sudah terdaftar akan dilewati dan ditampilkan notifikasi</li>
                 <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
                 <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
+                <li>Sistem akan membuat akun autentikasi lengkap untuk setiap mahasiswa</li>
               </ul>
             </div>
           </div>
