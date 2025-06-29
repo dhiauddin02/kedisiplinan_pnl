@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings } from 'lucide-react';
+import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings, TestTube } from 'lucide-react';
 import { clusteringAPI } from '../lib/api';
 import { registerUser } from '../lib/auth';
 import { supabase } from '../lib/supabase';
@@ -144,6 +144,55 @@ export default function TambahMahasiswa() {
     }
   };
 
+  const testSingleStudent = async () => {
+    if (processedData.length === 0) {
+      setMessage({ type: 'error', text: 'Tidak ada data mahasiswa untuk ditest' });
+      return;
+    }
+
+    const firstStudent = processedData[0];
+    setLoading(true);
+    setProgress({ current: 1, total: 1 });
+    setMessage({ type: 'info', text: `Testing dengan mahasiswa pertama: ${firstStudent.nama} (${firstStudent.nim})` });
+
+    try {
+      const result = await registerSingleStudent(firstStudent);
+      
+      if (result.success) {
+        setMessage({ 
+          type: 'success', 
+          text: `✅ Test berhasil! Mahasiswa ${firstStudent.nama} (${firstStudent.nim}) berhasil ditambahkan ke sistem.` 
+        });
+      } else {
+        let errorMessage = '';
+        switch (result.reason) {
+          case 'already_exists':
+            errorMessage = `ℹ️ Mahasiswa ${firstStudent.nama} (${firstStudent.nim}) sudah terdaftar sebelumnya.`;
+            break;
+          case 'rate_limit':
+            errorMessage = `⚠️ Rate limit tercapai saat menambahkan ${firstStudent.nama} (${firstStudent.nim}).`;
+            break;
+          default:
+            errorMessage = `❌ Gagal menambahkan mahasiswa ${firstStudent.nama} (${firstStudent.nim}).`;
+        }
+        setMessage({ 
+          type: result.reason === 'already_exists' ? 'info' : 'error', 
+          text: errorMessage 
+        });
+      }
+
+    } catch (error) {
+      console.error('Error testing student:', error);
+      setMessage({ 
+        type: 'error', 
+        text: `❌ Error saat testing mahasiswa ${firstStudent.nama} (${firstStudent.nim}): ${error instanceof Error ? error.message : 'Unknown error'}` 
+      });
+    } finally {
+      setLoading(false);
+      setProgress({ current: 0, total: 0 });
+    }
+  };
+
   const addStudents = async () => {
     if (processedData.length === 0) {
       setMessage({ type: 'error', text: 'Tidak ada data mahasiswa untuk ditambahkan' });
@@ -285,7 +334,7 @@ export default function TambahMahasiswa() {
             ></div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Memproses mahasiswa secara berurutan dengan jeda 500ms antar mahasiswa...
+            {progress.total === 1 ? 'Testing mahasiswa pertama...' : 'Memproses mahasiswa secara berurutan dengan jeda 500ms antar mahasiswa...'}
           </p>
         </div>
       )}
@@ -360,23 +409,38 @@ export default function TambahMahasiswa() {
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl font-semibold text-gray-900">Data Mahasiswa yang Akan Ditambahkan</h2>
-            <button
-              onClick={addStudents}
-              disabled={loading}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors duration-150 disabled:opacity-50 flex items-center"
-            >
-              {loading ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-              ) : (
-                <UserPlus className="w-4 h-4 mr-2" />
-              )}
-              Tambah Data
-            </button>
+            <div className="flex space-x-3">
+              <button
+                onClick={testSingleStudent}
+                disabled={loading}
+                className="bg-orange-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-orange-700 transition-colors duration-150 disabled:opacity-50 flex items-center"
+              >
+                {loading ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                ) : (
+                  <TestTube className="w-4 h-4 mr-2" />
+                )}
+                Test 1 Mahasiswa
+              </button>
+              <button
+                onClick={addStudents}
+                disabled={loading}
+                className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors duration-150 disabled:opacity-50 flex items-center"
+              >
+                {loading ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                ) : (
+                  <UserPlus className="w-4 h-4 mr-2" />
+                )}
+                Tambah Semua
+              </button>
+            </div>
           </div>
 
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-700">
-              <strong>Total:</strong> {processedData.length} mahasiswa akan ditambahkan ke sistem secara berurutan.
+              <strong>Total:</strong> {processedData.length} mahasiswa siap ditambahkan. 
+              Gunakan <strong>"Test 1 Mahasiswa"</strong> untuk mencoba dengan mahasiswa pertama saja.
             </p>
           </div>
 
@@ -392,9 +456,12 @@ export default function TambahMahasiswa() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {processedData.map((student, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{index + 1}</td>
+                {processedData.slice(0, 5).map((student, index) => (
+                  <tr key={index} className={`hover:bg-gray-50 ${index === 0 ? 'bg-yellow-50' : ''}`}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {index + 1}
+                      {index === 0 && <span className="ml-2 text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded">Test</span>}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nim}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nama}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.tingkat} / {student.kelas}</td>
@@ -403,6 +470,13 @@ export default function TambahMahasiswa() {
                     </td>
                   </tr>
                 ))}
+                {processedData.length > 5 && (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-4 text-center text-sm text-gray-500">
+                      ... dan {processedData.length - 5} mahasiswa lainnya
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -424,6 +498,7 @@ export default function TambahMahasiswa() {
                 <li>Sistem akan memeriksa mahasiswa yang sudah terdaftar sebelum menambahkan</li>
                 <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
                 <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
+                <li><strong>Test Mode:</strong> Gunakan "Test 1 Mahasiswa" untuk mencoba dengan mahasiswa pertama saja</li>
                 <li><strong>Proses berurutan:</strong> Setiap mahasiswa akan diproses satu per satu dengan jeda 500ms</li>
                 <li>Progress akan ditampilkan selama proses penambahan data</li>
               </ul>
