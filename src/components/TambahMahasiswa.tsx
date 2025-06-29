@@ -3,9 +3,7 @@ import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Set
 import { clusteringAPI } from '../lib/api';
 import { registerUser } from '../lib/auth';
 import { supabase } from '../lib/supabase';
-
-// Utility function to add delay between operations
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+import { retryWithBackoff, sleep, generateEmail } from '../lib/utils';
 
 export default function TambahMahasiswa() {
   const [file, setFile] = useState<File | null>(null);
@@ -30,20 +28,6 @@ export default function TambahMahasiswa() {
         setMessage({ type: 'error', text: 'File harus berformat .xlsx atau .xls' });
       }
     }
-  };
-
-  const generateEmail = (namaMahasiswa: string, nim: string): string => {
-    // Format nama: lowercase, spasi jadi underscore
-    const namaFormatted = namaMahasiswa
-      .toLowerCase()
-      .replace(/\s+/g, '_')
-      .replace(/[^a-z0-9_]/g, ''); // Remove special characters except underscore
-    
-    // Ambil 3 digit terakhir NIM
-    const nimStr = nim.toString();
-    const lastThreeDigits = nimStr.slice(-3).padStart(3, '0');
-    
-    return `${namaFormatted}${lastThreeDigits}@student.pnl.ac.id`;
   };
 
   const validateDataset = () => {
@@ -111,6 +95,61 @@ export default function TambahMahasiswa() {
     }
   };
 
+  const registerStudentWithRetry = async (student: any): Promise<{ success: boolean; reason?: string }> => {
+    try {
+      // Check if user already exists first
+      const userExists = await checkExistingUser(student.nim);
+      
+      if (userExists) {
+        return { success: false, reason: 'already_exists' };
+      }
+
+      // Generate email
+      const email = generateEmail(student.nama, student.nim);
+
+      // Use retry with backoff for registration
+      const newUser = await retryWithBackoff(
+        async () => {
+          return await registerUser({
+            email: email,
+            password: student.nim, // Use NIM as default password
+            nama: student.nama,
+            nim: student.nim,
+            role: 'mahasiswa',
+            level_user: 0,
+            tingkat: student.tingkat,
+            kelas: student.kelas
+          });
+        },
+        3, // max 3 retries
+        1000 // start with 1 second delay
+      );
+
+      if (newUser) {
+        return { success: true };
+      } else {
+        return { success: false, reason: 'registration_failed' };
+      }
+
+    } catch (error) {
+      console.error('Error registering student:', error);
+      
+      if (error instanceof Error) {
+        if (error.message.includes('already registered') || 
+            error.message.includes('User already registered') ||
+            error.message.includes('duplicate')) {
+          return { success: false, reason: 'already_exists' };
+        } else if (error.message.includes('rate') || 
+                  error.message.includes('too many') ||
+                  error.message.includes('429')) {
+          return { success: false, reason: 'rate_limit' };
+        }
+      }
+      
+      return { success: false, reason: 'error' };
+    }
+  };
+
   const addStudents = async () => {
     if (processedData.length === 0) {
       setMessage({ type: 'error', text: 'Tidak ada data mahasiswa untuk ditambahkan' });
@@ -133,95 +172,34 @@ export default function TambahMahasiswa() {
         const student = processedData[i];
         setProgress({ current: i + 1, total: processedData.length });
         
-        try {
-          // Check if user already exists before attempting registration
-          const userExists = await checkExistingUser(student.nim);
-          
-          if (userExists) {
-            existingCount++;
-            existingStudents.push(`${student.nim} - ${student.nama}`);
-            console.log(`Student ${student.nim} already exists, skipping...`);
-          } else {
-            // Generate email
-            const email = generateEmail(student.nama, student.nim);
-
-            // Use registerUser function to properly create user in both auth.users and public.users
-            const newUser = await registerUser({
-              email: email,
-              password: student.nim, // Use NIM as default password
-              nama: student.nama,
-              nim: student.nim,
-              role: 'mahasiswa',
-              level_user: 0,
-              tingkat: student.tingkat,
-              kelas: student.kelas
-            });
-
-            if (newUser) {
-              addedCount++;
-              addedStudents.push(`${student.nim} - ${student.nama}`);
-              console.log(`Successfully added student ${student.nim}`);
-            } else {
+        const result = await registerStudentWithRetry(student);
+        
+        if (result.success) {
+          addedCount++;
+          addedStudents.push(`${student.nim} - ${student.nama}`);
+          console.log(`Successfully added student ${student.nim}`);
+        } else {
+          switch (result.reason) {
+            case 'already_exists':
+              existingCount++;
+              existingStudents.push(`${student.nim} - ${student.nama}`);
+              console.log(`Student ${student.nim} already exists`);
+              break;
+            case 'rate_limit':
+              errorCount++;
+              errorStudents.push(`${student.nim} - ${student.nama} (Rate limit)`);
+              console.log(`Rate limit hit for student ${student.nim}`);
+              break;
+            default:
               errorCount++;
               errorStudents.push(`${student.nim} - ${student.nama}`);
               console.log(`Failed to add student ${student.nim}`);
-            }
           }
+        }
 
-          // Add delay between requests to avoid rate limiting
-          if (i < processedData.length - 1) {
-            await sleep(150); // 150ms delay between each registration
-          }
-
-        } catch (error) {
-          console.error('Error processing student:', error);
-          
-          // Check if it's a duplicate email error or rate limit error
-          if (error instanceof Error) {
-            if (error.message.includes('already registered') || 
-                error.message.includes('User already registered') ||
-                error.message.includes('duplicate')) {
-              existingCount++;
-              existingStudents.push(`${student.nim} - ${student.nama}`);
-            } else if (error.message.includes('rate') || 
-                      error.message.includes('too many') ||
-                      error.message.includes('429')) {
-              // Rate limit hit, add longer delay and retry once
-              console.log('Rate limit detected, adding longer delay...');
-              await sleep(2000); // 2 second delay for rate limit
-              
-              try {
-                const email = generateEmail(student.nama, student.nim);
-                const retryUser = await registerUser({
-                  email: email,
-                  password: student.nim,
-                  nama: student.nama,
-                  nim: student.nim,
-                  role: 'mahasiswa',
-                  level_user: 0,
-                  tingkat: student.tingkat,
-                  kelas: student.kelas
-                });
-
-                if (retryUser) {
-                  addedCount++;
-                  addedStudents.push(`${student.nim} - ${student.nama}`);
-                } else {
-                  errorCount++;
-                  errorStudents.push(`${student.nim} - ${student.nama}`);
-                }
-              } catch (retryError) {
-                errorCount++;
-                errorStudents.push(`${student.nim} - ${student.nama}`);
-              }
-            } else {
-              errorCount++;
-              errorStudents.push(`${student.nim} - ${student.nama}`);
-            }
-          } else {
-            errorCount++;
-            errorStudents.push(`${student.nim} - ${student.nama}`);
-          }
+        // Add delay between requests to avoid overwhelming the API
+        if (i < processedData.length - 1) {
+          await sleep(200); // 200ms delay between each registration
         }
       }
 
@@ -446,7 +424,7 @@ export default function TambahMahasiswa() {
                 <li>Sistem akan memeriksa mahasiswa yang sudah terdaftar sebelum menambahkan</li>
                 <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
                 <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
-                <li>Proses akan berjalan dengan delay untuk menghindari rate limit</li>
+                <li>Sistem menggunakan retry dengan exponential backoff untuk mengatasi rate limit</li>
                 <li>Progress akan ditampilkan selama proses penambahan data</li>
               </ul>
             </div>
