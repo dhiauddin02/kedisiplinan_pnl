@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings, Bug } from 'lucide-react';
 import { clusteringAPI } from '../lib/api';
-import { registerUser, debugAdminStatus } from '../lib/auth';
+import { registerUser, debugAdminStatus, storeAdminSession, restoreAdminSession } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { processBatch, generateEmail } from '../lib/utils';
 
@@ -156,7 +156,15 @@ export default function TambahMahasiswa() {
 
     setLoading(true);
     setProgress({ current: 0, total: processedData.length });
-    setMessage({ type: 'info', text: 'Menambahkan data mahasiswa secara berurutan...' });
+    setMessage({ type: 'info', text: 'Menyimpan sesi admin dan memulai penambahan mahasiswa...' });
+
+    // Store admin session before starting registration
+    const adminSession = await storeAdminSession();
+    if (!adminSession) {
+      setMessage({ type: 'error', text: 'Gagal menyimpan sesi admin. Pastikan Anda login sebagai admin.' });
+      setLoading(false);
+      return;
+    }
 
     let addedCount = 0;
     let existingCount = 0;
@@ -167,48 +175,52 @@ export default function TambahMahasiswa() {
     const errorStudents: string[] = [];
 
     try {
-      // Use processBatch with batchSize = 1 to process students one by one
-      await processBatch(
-        processedData,
-        async (student: any, index: number) => {
-          // Update progress
-          setProgress({ current: index + 1, total: processedData.length });
-          
-          const result = await registerSingleStudent(student);
-          
-          if (result.success) {
-            addedCount++;
-            addedStudents.push(`${student.nim} - ${student.nama}`);
-            console.log(`Successfully added student ${student.nim}`);
-          } else {
-            switch (result.reason) {
-              case 'already_exists':
-                existingCount++;
-                existingStudents.push(`${student.nim} - ${student.nama}`);
-                console.log(`Student ${student.nim} already exists`);
-                break;
-              case 'rate_limit':
-                errorCount++;
-                errorStudents.push(`${student.nim} - ${student.nama} (Rate limit)`);
-                console.log(`Rate limit hit for student ${student.nim}`);
-                break;
-              case 'rls_policy':
-                rlsErrorCount++;
-                errorStudents.push(`${student.nim} - ${student.nama} (RLS Policy)`);
-                console.log(`RLS policy violation for student ${student.nim}`);
-                break;
-              default:
-                errorCount++;
-                errorStudents.push(`${student.nim} - ${student.nama}`);
-                console.log(`Failed to add student ${student.nim}`);
-            }
+      // Process students one by one with session restoration
+      for (let i = 0; i < processedData.length; i++) {
+        const student = processedData[i];
+        
+        // Update progress
+        setProgress({ current: i + 1, total: processedData.length });
+        setMessage({ type: 'info', text: `Memproses mahasiswa ${i + 1}/${processedData.length}: ${student.nama}` });
+        
+        const result = await registerSingleStudent(student);
+        
+        // Restore admin session after each registration
+        await restoreAdminSession();
+        
+        if (result.success) {
+          addedCount++;
+          addedStudents.push(`${student.nim} - ${student.nama}`);
+          console.log(`Successfully added student ${student.nim}`);
+        } else {
+          switch (result.reason) {
+            case 'already_exists':
+              existingCount++;
+              existingStudents.push(`${student.nim} - ${student.nama}`);
+              console.log(`Student ${student.nim} already exists`);
+              break;
+            case 'rate_limit':
+              errorCount++;
+              errorStudents.push(`${student.nim} - ${student.nama} (Rate limit)`);
+              console.log(`Rate limit hit for student ${student.nim}`);
+              break;
+            case 'rls_policy':
+              rlsErrorCount++;
+              errorStudents.push(`${student.nim} - ${student.nama} (RLS Policy)`);
+              console.log(`RLS policy violation for student ${student.nim}`);
+              break;
+            default:
+              errorCount++;
+              errorStudents.push(`${student.nim} - ${student.nama}`);
+              console.log(`Failed to add student ${student.nim}`);
           }
+        }
 
-          return result;
-        },
-        1, // Process one student at a time
-        500 // 500ms delay between each student
-      );
+        // Add delay between students to avoid rate limiting
+        if (i < processedData.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
 
       // Show detailed results
       let resultMessage = '';
@@ -248,6 +260,8 @@ export default function TambahMahasiswa() {
       console.error('Error adding students:', error);
       setMessage({ type: 'error', text: 'Gagal menambahkan data mahasiswa' });
     } finally {
+      // Ensure admin session is restored at the end
+      await restoreAdminSession();
       setLoading(false);
       setProgress({ current: 0, total: 0 });
     }
@@ -389,7 +403,7 @@ export default function TambahMahasiswa() {
             ></div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Memproses mahasiswa secara berurutan dengan jeda 500ms antar mahasiswa...
+            Memproses mahasiswa secara berurutan dengan pemulihan sesi admin setiap kali...
           </p>
         </div>
       )}
@@ -481,7 +495,7 @@ export default function TambahMahasiswa() {
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-700">
               <strong>Total:</strong> {processedData.length} mahasiswa siap ditambahkan. 
-              Sistem akan memproses setiap mahasiswa secara berurutan dengan jeda 500ms untuk menghindari rate limiting.
+              Sistem akan memproses setiap mahasiswa secara berurutan dengan pemulihan sesi admin setiap kali.
             </p>
           </div>
 
@@ -529,7 +543,7 @@ export default function TambahMahasiswa() {
                 <li>Sistem akan memeriksa mahasiswa yang sudah terdaftar sebelum menambahkan</li>
                 <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
                 <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
-                <li><strong>Proses berurutan:</strong> Setiap mahasiswa akan diproses satu per satu dengan jeda 500ms</li>
+                <li><strong>Sesi Admin:</strong> Sistem akan menyimpan dan memulihkan sesi admin setiap kali</li>
                 <li>Progress akan ditampilkan selama proses penambahan data</li>
                 <li>Semua data mahasiswa akan ditampilkan dalam tabel untuk review sebelum ditambahkan</li>
                 <li><strong>Debug Check:</strong> Gunakan tombol Debug Check jika mengalami masalah RLS</li>

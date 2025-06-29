@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { User } from '@supabase/supabase-js';
+import type { User, Session } from '@supabase/supabase-js';
 
 export interface AppUser {
   id: string;
@@ -15,6 +15,9 @@ export interface AppUser {
   tingkat?: string;
   kelas?: string;
 }
+
+// Store admin session for restoration
+let adminSession: Session | null = null;
 
 export const login = async (nim: string, password: string): Promise<AppUser | null> => {
   try {
@@ -52,6 +55,12 @@ export const login = async (nim: string, password: string): Promise<AppUser | nu
 
     console.log('Authentication successful:', authData.user);
 
+    // Store admin session if this is an admin login
+    if (userData.role === 'admin' && authData.session) {
+      adminSession = authData.session;
+      console.log('Admin session stored for restoration');
+    }
+
     // Return combined user data
     const appUser: AppUser = {
       id: authData.user.id,
@@ -83,9 +92,11 @@ export const logout = async () => {
   try {
     await supabase.auth.signOut();
     localStorage.removeItem('user');
+    adminSession = null; // Clear stored admin session
   } catch (error) {
     console.error('Logout error:', error);
     localStorage.removeItem('user');
+    adminSession = null;
   }
 };
 
@@ -112,6 +123,52 @@ export const updatePassword = async (newPassword: string): Promise<boolean> => {
     return true;
   } catch (error) {
     console.error('Update password error:', error);
+    return false;
+  }
+};
+
+// Function to store current admin session before registration operations
+export const storeAdminSession = async (): Promise<Session | null> => {
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      const currentUser = getCurrentUser();
+      if (currentUser?.role === 'admin') {
+        adminSession = session;
+        console.log('Admin session stored:', session.user.id);
+        return session;
+      }
+    }
+    return null;
+  } catch (error) {
+    console.error('Error storing admin session:', error);
+    return null;
+  }
+};
+
+// Function to restore admin session after registration operations
+export const restoreAdminSession = async (): Promise<boolean> => {
+  try {
+    if (!adminSession) {
+      console.log('No admin session to restore');
+      return false;
+    }
+
+    // Set the session back to admin
+    const { error } = await supabase.auth.setSession({
+      access_token: adminSession.access_token,
+      refresh_token: adminSession.refresh_token
+    });
+
+    if (error) {
+      console.error('Error restoring admin session:', error);
+      return false;
+    }
+
+    console.log('Admin session restored successfully');
+    return true;
+  } catch (error) {
+    console.error('Error in restoreAdminSession:', error);
     return false;
   }
 };
