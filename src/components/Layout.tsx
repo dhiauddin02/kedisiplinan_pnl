@@ -45,7 +45,7 @@ export default function Layout() {
       { icon: BarChart3, label: 'Hasil Clustering', path: '/hasil-clustering' },
       { icon: FileText, label: 'Laporan', path: '/laporan' },
     ] : []),
-    ...(user.level_user === 2 ? [
+    ...(user.level_user === 0 ? [
       { icon: UserCheck, label: 'Clustering Pribadi', path: '/clustering-pribadi' },
       { icon: User, label: 'Lengkapi Data', path: '/lengkapi-data' },
     ] : []),

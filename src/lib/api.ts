@@ -70,34 +70,76 @@ export const databaseAPI = {
   },
 
   async saveClusteringResults(results: any[], batchId: string) {
-    const clusteringData = results.map(result => ({
-      id_user: result.user_id,
-      id_batch: batchId,
-      nim: result.NIM?.toString(),
-      nama_mahasiswa: result['Nama Mahasiswa'],
-      tingkat: result.TINGKAT,
-      kelas: result.KELAS,
-      total_a: result.TOTAL_A,
-      jp: result.JP,
-      kedisiplinan: result.KEDISIPLINAN,
-      cluster: result.Cluster?.toString(),
-      insight: result.Insight,
-      nilai_matkul: result,
-      status_pesan: 'belum terkirim'
-    }));
+    // First, check if there are existing results for this batch
+    const { data: existingResults, error: checkError } = await supabase
+      .from('hasil_clustering')
+      .select('id')
+      .eq('id_batch', batchId);
 
+    if (checkError) {
+      console.error('Error checking existing results:', checkError);
+      throw checkError;
+    }
+
+    // If there are existing results, delete them first
+    if (existingResults && existingResults.length > 0) {
+      const { error: deleteError } = await supabase
+        .from('hasil_clustering')
+        .delete()
+        .eq('id_batch', batchId);
+
+      if (deleteError) {
+        console.error('Error deleting existing results:', deleteError);
+        throw deleteError;
+      }
+    }
+
+    // Prepare clustering data
+    const clusteringData = results
+      .filter(result => result.user_id) // Only include results with valid user_id
+      .map(result => ({
+        id_user: result.user_id,
+        id_batch: batchId,
+        nim: result.NIM?.toString() || '',
+        nama_mahasiswa: result['Nama Mahasiswa'] || '',
+        tingkat: result.TINGKAT || '',
+        kelas: result.KELAS || '',
+        total_a: Number(result.TOTAL_A) || 0,
+        jp: Number(result.JP) || 0,
+        kedisiplinan: result.KEDISIPLINAN || '',
+        cluster: result.Cluster?.toString() || '0',
+        insight: result.Insight || '',
+        nilai_matkul: result || {},
+        status_pesan: 'belum terkirim'
+      }));
+
+    if (clusteringData.length === 0) {
+      throw new Error('Tidak ada data valid untuk disimpan');
+    }
+
+    // Insert new results
     const { data, error } = await supabase
       .from('hasil_clustering')
-      .insert(clusteringData);
+      .insert(clusteringData)
+      .select();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Error inserting clustering results:', error);
+      throw error;
+    }
+
     return data;
   },
 
-  async createPeriode(namaPeriode: string, tahunAjaran: string) {
+  async createPeriode(namaPeriode: string, tahunAjaran: string, semester?: string) {
     const { data, error } = await supabase
       .from('periode')
-      .insert({ nama_periode: namaPeriode, tahun_ajaran: tahunAjaran });
+      .insert({ 
+        nama_periode: namaPeriode, 
+        tahun_ajaran: tahunAjaran,
+        semester: semester || null
+      })
+      .select();
 
     if (error) throw error;
     return data;
@@ -110,7 +152,8 @@ export const databaseAPI = {
         nama_batch: namaBatch, 
         id_periode: idPeriode,
         tgl_batch: new Date().toISOString().split('T')[0]
-      });
+      })
+      .select();
 
     if (error) throw error;
     return data;
