@@ -155,7 +155,7 @@ export default function TambahMahasiswa() {
           } else if (error instanceof Error && error.message.includes('rate limit')) {
             // If rate limit error, add longer delay and retry once
             console.log('Rate limit reached, waiting longer...');
-            await delay(2000); // Wait 2 seconds
+            await delay(5000); // Wait 5 seconds
             
             try {
               const email = generateEmail(student.nama, student.nim);
@@ -189,11 +189,11 @@ export default function TambahMahasiswa() {
         }
 
         // Add delay between each request to avoid rate limiting
-        // Longer delay for every 5th request
-        if ((i + 1) % 5 === 0) {
-          await delay(1000); // 1 second delay every 5 requests
+        // Longer delay for every 3rd request
+        if ((i + 1) % 3 === 0) {
+          await delay(3000); // 3 second delay every 3 requests
         } else {
-          await delay(300); // 300ms delay between requests
+          await delay(1000); // 1 second delay between requests
         }
       }
 
@@ -373,7 +373,7 @@ export default function TambahMahasiswa() {
               <strong>Total:</strong> {processedData.length} mahasiswa akan ditambahkan ke sistem.
             </p>
             <p className="text-xs text-blue-600 mt-1">
-              <strong>Catatan:</strong> Proses akan berjalan dengan delay untuk menghindari rate limit. Estimasi waktu: {Math.ceil(processedData.length * 0.5)} detik.
+              <strong>Catatan:</strong> Proses akan berjalan dengan delay untuk menghindari rate limit. Estimasi waktu: {Math.ceil(processedData.length * 1.5)} detik.
             </p>
           </div>
 
@@ -422,7 +422,7 @@ export default function TambahMahasiswa() {
                 <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
                 <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
                 <li>Sistem akan membuat akun autentikasi lengkap untuk setiap mahasiswa</li>
-                <li><strong>Proses akan berjalan dengan delay untuk menghindari rate limit dari Supabase</strong></li>
+                <li><strong>Proses akan berjalan dengan delay 1 detik antar request dan 3 detik setiap 3 request untuk menghindari rate limit</strong></li>
               </ul>
             </div>
           </div>
