@@ -75,8 +75,8 @@ export default function Clustering() {
       // Send to clustering API
       const results = await clusteringAPI.processFile(file!, sheetName);
       
-      // Register students if not exists (with better error handling)
-      await registerStudents(results);
+      // Check and register students (simplified approach)
+      await checkAndRegisterStudents(results);
       
       setClusteringResults(results);
       setMessage({ type: 'success', text: 'Clustering berhasil diproses!' });
@@ -102,7 +102,7 @@ export default function Clustering() {
     }
   };
 
-  const registerStudents = async (results: any[]) => {
+  const checkAndRegisterStudents = async (results: any[]) => {
     let registeredCount = 0;
     let existingCount = 0;
     
@@ -111,12 +111,12 @@ export default function Clustering() {
         const nim = result.NIM?.toString();
         if (!nim) continue;
 
-        // Check if student exists first
+        // Check if student exists in our users table
         const { data: existingUser, error: checkError } = await supabase
           .from('users')
           .select('id, nim')
           .eq('nim', nim)
-          .maybeSingle(); // Use maybeSingle to avoid error when no record found
+          .maybeSingle();
 
         if (checkError && checkError.code !== 'PGRST116') {
           console.error('Error checking existing user:', checkError);
@@ -129,31 +129,16 @@ export default function Clustering() {
           continue;
         }
 
-        // Generate email for new student
+        // For new students, we'll create a placeholder record
+        // The actual auth user will be created when they first try to login
         const email = `${nim}@student.pnl.ac.id`;
         
-        // Create user in Supabase Auth first
-        const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-          email: email,
-          password: nim, // Use NIM as default password
-          email_confirm: true
-        });
-
-        if (authError) {
-          console.error('Error creating auth user:', authError);
-          continue;
-        }
-
-        if (!authData.user) {
-          console.error('No user returned from auth creation');
-          continue;
-        }
-
-        // Insert into public.users table
+        // Insert placeholder user record (without auth user creation)
         const { error: insertError } = await supabase
           .from('users')
           .insert({
-            id: authData.user.id,
+            // We'll use a temporary UUID that will be replaced when they actually register
+            id: crypto.randomUUID(),
             nim: nim,
             nama: result['Nama Mahasiswa'] || `Mahasiswa ${nim}`,
             email: email,
@@ -165,13 +150,11 @@ export default function Clustering() {
 
         if (insertError) {
           console.error('Error inserting user data:', insertError);
-          // If insert fails, clean up auth user
-          await supabase.auth.admin.deleteUser(authData.user.id);
           continue;
         }
 
         registeredCount++;
-        console.log(`Successfully registered student ${nim}`);
+        console.log(`Successfully registered placeholder for student ${nim}`);
         
       } catch (error) {
         console.error('Error registering student:', error);
@@ -179,6 +162,13 @@ export default function Clustering() {
     }
     
     console.log(`Registration summary: ${registeredCount} new students, ${existingCount} existing students`);
+    
+    if (registeredCount > 0) {
+      setMessage({ 
+        type: 'info', 
+        text: `${registeredCount} mahasiswa baru telah didaftarkan. Mereka dapat login menggunakan NIM sebagai username dan password.` 
+      });
+    }
   };
 
   const saveResults = async () => {
@@ -205,7 +195,7 @@ export default function Clustering() {
             .from('users')
             .select('id')
             .eq('nim', nim)
-            .single();
+            .maybeSingle();
           
           return {
             ...result,

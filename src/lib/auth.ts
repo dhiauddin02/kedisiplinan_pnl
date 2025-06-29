@@ -34,11 +34,66 @@ export const login = async (nim: string, password: string): Promise<AppUser | nu
 
     console.log('User found in database:', userData);
 
-    // Sign in with email and password using Supabase Auth
+    // Check if this is a placeholder user (no auth user yet)
+    const { data: authUser } = await supabase.auth.getUser();
+    
+    // Try to sign in with existing auth user
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email: userData.email,
       password: password.trim(),
     });
+
+    // If auth fails and this might be a new student, try to create auth user
+    if (authError && authError.message.includes('Invalid login credentials')) {
+      console.log('Auth user not found, attempting to create for student...');
+      
+      // Try to sign up the user (for students who were registered during clustering)
+      const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+        email: userData.email,
+        password: password.trim(),
+      });
+
+      if (signUpError) {
+        console.error('Failed to create auth user:', signUpError);
+        return null;
+      }
+
+      if (!signUpData.user) {
+        console.error('No user returned from signup');
+        return null;
+      }
+
+      // Update the placeholder user record with the real auth user ID
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ id: signUpData.user.id })
+        .eq('nim', nim.trim());
+
+      if (updateError) {
+        console.error('Failed to update user with auth ID:', updateError);
+        return null;
+      }
+
+      // Use the signup data for the rest of the process
+      const appUser: AppUser = {
+        id: signUpData.user.id,
+        email: userData.email,
+        nama: userData.nama,
+        nim: userData.nim,
+        role: userData.role,
+        level_user: userData.level_user,
+        nama_wali: userData.nama_wali,
+        no_wa_wali: userData.no_wa_wali,
+        nama_dosen_pembimbing: userData.nama_dosen_pembimbing,
+        no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing,
+        tingkat: userData.tingkat,
+        kelas: userData.kelas,
+      };
+
+      localStorage.setItem('user', JSON.stringify(appUser));
+      console.log('New user created and logged in:', appUser);
+      return appUser;
+    }
 
     if (authError) {
       console.error('Authentication failed:', authError);
