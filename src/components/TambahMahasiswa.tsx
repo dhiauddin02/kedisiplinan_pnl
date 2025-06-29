@@ -3,7 +3,7 @@ import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Set
 import { clusteringAPI } from '../lib/api';
 import { registerUser } from '../lib/auth';
 import { supabase } from '../lib/supabase';
-import { retryWithBackoff, sleep, generateEmail } from '../lib/utils';
+import { processBatch, generateEmail } from '../lib/utils';
 
 export default function TambahMahasiswa() {
   const [file, setFile] = useState<File | null>(null);
@@ -95,7 +95,7 @@ export default function TambahMahasiswa() {
     }
   };
 
-  const registerStudentWithRetry = async (student: any): Promise<{ success: boolean; reason?: string }> => {
+  const registerSingleStudent = async (student: any): Promise<{ success: boolean; reason?: string }> => {
     try {
       // Check if user already exists first
       const userExists = await checkExistingUser(student.nim);
@@ -107,23 +107,17 @@ export default function TambahMahasiswa() {
       // Generate email
       const email = generateEmail(student.nama, student.nim);
 
-      // Use retry with backoff for registration
-      const newUser = await retryWithBackoff(
-        async () => {
-          return await registerUser({
-            email: email,
-            password: student.nim, // Use NIM as default password
-            nama: student.nama,
-            nim: student.nim,
-            role: 'mahasiswa',
-            level_user: 0,
-            tingkat: student.tingkat,
-            kelas: student.kelas
-          });
-        },
-        3, // max 3 retries
-        1000 // start with 1 second delay
-      );
+      // Register the student
+      const newUser = await registerUser({
+        email: email,
+        password: student.nim, // Use NIM as default password
+        nama: student.nama,
+        nim: student.nim,
+        role: 'mahasiswa',
+        level_user: 0,
+        tingkat: student.tingkat,
+        kelas: student.kelas
+      });
 
       if (newUser) {
         return { success: true };
@@ -158,7 +152,7 @@ export default function TambahMahasiswa() {
 
     setLoading(true);
     setProgress({ current: 0, total: processedData.length });
-    setMessage({ type: 'info', text: 'Menambahkan data mahasiswa...' });
+    setMessage({ type: 'info', text: 'Menambahkan data mahasiswa secara berurutan...' });
 
     let addedCount = 0;
     let existingCount = 0;
@@ -168,40 +162,43 @@ export default function TambahMahasiswa() {
     const errorStudents: string[] = [];
 
     try {
-      for (let i = 0; i < processedData.length; i++) {
-        const student = processedData[i];
-        setProgress({ current: i + 1, total: processedData.length });
-        
-        const result = await registerStudentWithRetry(student);
-        
-        if (result.success) {
-          addedCount++;
-          addedStudents.push(`${student.nim} - ${student.nama}`);
-          console.log(`Successfully added student ${student.nim}`);
-        } else {
-          switch (result.reason) {
-            case 'already_exists':
-              existingCount++;
-              existingStudents.push(`${student.nim} - ${student.nama}`);
-              console.log(`Student ${student.nim} already exists`);
-              break;
-            case 'rate_limit':
-              errorCount++;
-              errorStudents.push(`${student.nim} - ${student.nama} (Rate limit)`);
-              console.log(`Rate limit hit for student ${student.nim}`);
-              break;
-            default:
-              errorCount++;
-              errorStudents.push(`${student.nim} - ${student.nama}`);
-              console.log(`Failed to add student ${student.nim}`);
+      // Use processBatch with batchSize = 1 to process students one by one
+      await processBatch(
+        processedData,
+        async (student: any, index: number) => {
+          // Update progress
+          setProgress({ current: index + 1, total: processedData.length });
+          
+          const result = await registerSingleStudent(student);
+          
+          if (result.success) {
+            addedCount++;
+            addedStudents.push(`${student.nim} - ${student.nama}`);
+            console.log(`Successfully added student ${student.nim}`);
+          } else {
+            switch (result.reason) {
+              case 'already_exists':
+                existingCount++;
+                existingStudents.push(`${student.nim} - ${student.nama}`);
+                console.log(`Student ${student.nim} already exists`);
+                break;
+              case 'rate_limit':
+                errorCount++;
+                errorStudents.push(`${student.nim} - ${student.nama} (Rate limit)`);
+                console.log(`Rate limit hit for student ${student.nim}`);
+                break;
+              default:
+                errorCount++;
+                errorStudents.push(`${student.nim} - ${student.nama}`);
+                console.log(`Failed to add student ${student.nim}`);
+            }
           }
-        }
 
-        // Add delay between requests to avoid overwhelming the API
-        if (i < processedData.length - 1) {
-          await sleep(200); // 200ms delay between each registration
-        }
-      }
+          return result;
+        },
+        1, // Process one student at a time
+        500 // 500ms delay between each student
+      );
 
       // Show detailed results
       let resultMessage = '';
@@ -287,6 +284,9 @@ export default function TambahMahasiswa() {
               style={{ width: `${(progress.current / progress.total) * 100}%` }}
             ></div>
           </div>
+          <p className="text-xs text-gray-500 mt-2">
+            Memproses mahasiswa secara berurutan dengan jeda 500ms antar mahasiswa...
+          </p>
         </div>
       )}
 
@@ -376,7 +376,7 @@ export default function TambahMahasiswa() {
 
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-700">
-              <strong>Total:</strong> {processedData.length} mahasiswa akan ditambahkan ke sistem.
+              <strong>Total:</strong> {processedData.length} mahasiswa akan ditambahkan ke sistem secara berurutan.
             </p>
           </div>
 
@@ -424,7 +424,7 @@ export default function TambahMahasiswa() {
                 <li>Sistem akan memeriksa mahasiswa yang sudah terdaftar sebelum menambahkan</li>
                 <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
                 <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
-                <li>Sistem menggunakan retry dengan exponential backoff untuk mengatasi rate limit</li>
+                <li><strong>Proses berurutan:</strong> Setiap mahasiswa akan diproses satu per satu dengan jeda 500ms</li>
                 <li>Progress akan ditampilkan selama proses penambahan data</li>
               </ul>
             </div>
