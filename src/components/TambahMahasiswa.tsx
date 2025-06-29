@@ -4,12 +4,16 @@ import { clusteringAPI } from '../lib/api';
 import { registerUser } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 
+// Utility function to add delay between operations
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
 export default function TambahMahasiswa() {
   const [file, setFile] = useState<File | null>(null);
   const [sheetName, setSheetName] = useState('REKAP-TK1');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
   const [processedData, setProcessedData] = useState<any[]>([]);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
 
   const sheetOptions = [
     'REKAP-TK1', 'REKAP-TK2', 'REKAP-TK3', 'REKAP-TK4'
@@ -92,6 +96,21 @@ export default function TambahMahasiswa() {
     }
   };
 
+  const checkExistingUser = async (nim: string): Promise<boolean> => {
+    try {
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id')
+        .eq('nim', nim)
+        .maybeSingle();
+      
+      return !!existingUser;
+    } catch (error) {
+      console.error('Error checking existing user:', error);
+      return false;
+    }
+  };
+
   const addStudents = async () => {
     if (processedData.length === 0) {
       setMessage({ type: 'error', text: 'Tidak ada data mahasiswa untuk ditambahkan' });
@@ -99,6 +118,7 @@ export default function TambahMahasiswa() {
     }
 
     setLoading(true);
+    setProgress({ current: 0, total: processedData.length });
     setMessage({ type: 'info', text: 'Menambahkan data mahasiswa...' });
 
     let addedCount = 0;
@@ -109,39 +129,38 @@ export default function TambahMahasiswa() {
     const errorStudents: string[] = [];
 
     try {
-      for (const student of processedData) {
+      for (let i = 0; i < processedData.length; i++) {
+        const student = processedData[i];
+        setProgress({ current: i + 1, total: processedData.length });
+        
         try {
-          // Generate email
-          const email = generateEmail(student.nama, student.nim);
-
-          // Use registerUser function to properly create user in both auth.users and public.users
-          const newUser = await registerUser({
-            email: email,
-            password: student.nim, // Use NIM as default password
-            nama: student.nama,
-            nim: student.nim,
-            role: 'mahasiswa',
-            level_user: 0,
-            tingkat: student.tingkat,
-            kelas: student.kelas
-          });
-
-          if (newUser) {
-            addedCount++;
-            addedStudents.push(`${student.nim} - ${student.nama}`);
-            console.log(`Successfully added student ${student.nim}`);
+          // Check if user already exists before attempting registration
+          const userExists = await checkExistingUser(student.nim);
+          
+          if (userExists) {
+            existingCount++;
+            existingStudents.push(`${student.nim} - ${student.nama}`);
+            console.log(`Student ${student.nim} already exists, skipping...`);
           } else {
-            // Check if user already exists
-            const { data: existingUser } = await supabase
-              .from('users')
-              .select('nim, nama')
-              .eq('nim', student.nim)
-              .maybeSingle();
+            // Generate email
+            const email = generateEmail(student.nama, student.nim);
 
-            if (existingUser) {
-              existingCount++;
-              existingStudents.push(`${student.nim} - ${student.nama}`);
-              console.log(`Student ${student.nim} already exists`);
+            // Use registerUser function to properly create user in both auth.users and public.users
+            const newUser = await registerUser({
+              email: email,
+              password: student.nim, // Use NIM as default password
+              nama: student.nama,
+              nim: student.nim,
+              role: 'mahasiswa',
+              level_user: 0,
+              tingkat: student.tingkat,
+              kelas: student.kelas
+            });
+
+            if (newUser) {
+              addedCount++;
+              addedStudents.push(`${student.nim} - ${student.nama}`);
+              console.log(`Successfully added student ${student.nim}`);
             } else {
               errorCount++;
               errorStudents.push(`${student.nim} - ${student.nama}`);
@@ -149,13 +168,56 @@ export default function TambahMahasiswa() {
             }
           }
 
+          // Add delay between requests to avoid rate limiting
+          if (i < processedData.length - 1) {
+            await sleep(150); // 150ms delay between each registration
+          }
+
         } catch (error) {
           console.error('Error processing student:', error);
           
-          // Check if it's a duplicate email error
-          if (error instanceof Error && error.message.includes('already registered')) {
-            existingCount++;
-            existingStudents.push(`${student.nim} - ${student.nama}`);
+          // Check if it's a duplicate email error or rate limit error
+          if (error instanceof Error) {
+            if (error.message.includes('already registered') || 
+                error.message.includes('User already registered') ||
+                error.message.includes('duplicate')) {
+              existingCount++;
+              existingStudents.push(`${student.nim} - ${student.nama}`);
+            } else if (error.message.includes('rate') || 
+                      error.message.includes('too many') ||
+                      error.message.includes('429')) {
+              // Rate limit hit, add longer delay and retry once
+              console.log('Rate limit detected, adding longer delay...');
+              await sleep(2000); // 2 second delay for rate limit
+              
+              try {
+                const email = generateEmail(student.nama, student.nim);
+                const retryUser = await registerUser({
+                  email: email,
+                  password: student.nim,
+                  nama: student.nama,
+                  nim: student.nim,
+                  role: 'mahasiswa',
+                  level_user: 0,
+                  tingkat: student.tingkat,
+                  kelas: student.kelas
+                });
+
+                if (retryUser) {
+                  addedCount++;
+                  addedStudents.push(`${student.nim} - ${student.nama}`);
+                } else {
+                  errorCount++;
+                  errorStudents.push(`${student.nim} - ${student.nama}`);
+                }
+              } catch (retryError) {
+                errorCount++;
+                errorStudents.push(`${student.nim} - ${student.nama}`);
+              }
+            } else {
+              errorCount++;
+              errorStudents.push(`${student.nim} - ${student.nama}`);
+            }
           } else {
             errorCount++;
             errorStudents.push(`${student.nim} - ${student.nama}`);
@@ -163,7 +225,7 @@ export default function TambahMahasiswa() {
         }
       }
 
-      // Show results
+      // Show detailed results
       let resultMessage = '';
       if (addedCount > 0) {
         resultMessage += `✅ ${addedCount} mahasiswa berhasil ditambahkan. `;
@@ -191,6 +253,7 @@ export default function TambahMahasiswa() {
       setMessage({ type: 'error', text: 'Gagal menambahkan data mahasiswa' });
     } finally {
       setLoading(false);
+      setProgress({ current: 0, total: 0 });
     }
   };
 
@@ -229,6 +292,22 @@ export default function TambahMahasiswa() {
             {message.type === 'error' && <AlertCircle className="w-5 h-5 mr-2" />}
             {message.type === 'info' && <AlertCircle className="w-5 h-5 mr-2" />}
             {message.text}
+          </div>
+        </div>
+      )}
+
+      {/* Progress Bar */}
+      {loading && progress.total > 0 && (
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700">Progress</span>
+            <span className="text-sm text-gray-500">{progress.current} / {progress.total}</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${(progress.current / progress.total) * 100}%` }}
+            ></div>
           </div>
         </div>
       )}
@@ -364,10 +443,11 @@ export default function TambahMahasiswa() {
               <ul className="list-disc list-inside space-y-1">
                 <li>Sistem akan mengambil data NIM dan Nama Mahasiswa dari file Excel</li>
                 <li>Email akan dibuat otomatis dengan format: nama_mahasiswa + 3 digit terakhir NIM + @student.pnl.ac.id</li>
-                <li>Mahasiswa yang sudah terdaftar akan dilewati dan ditampilkan notifikasi</li>
+                <li>Sistem akan memeriksa mahasiswa yang sudah terdaftar sebelum menambahkan</li>
                 <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
                 <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
-                <li>Sistem akan membuat akun autentikasi lengkap untuk setiap mahasiswa</li>
+                <li>Proses akan berjalan dengan delay untuk menghindari rate limit</li>
+                <li>Progress akan ditampilkan selama proses penambahan data</li>
               </ul>
             </div>
           </div>
