@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings } from 'lucide-react';
+import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings, Bug } from 'lucide-react';
 import { clusteringAPI } from '../lib/api';
-import { registerUser } from '../lib/auth';
+import { registerUser, debugAdminStatus } from '../lib/auth';
 import { supabase } from '../lib/supabase';
 import { processBatch, generateEmail } from '../lib/utils';
 
@@ -12,6 +12,7 @@ export default function TambahMahasiswa() {
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   const sheetOptions = [
     'REKAP-TK1', 'REKAP-TK2', 'REKAP-TK3', 'REKAP-TK4'
@@ -137,6 +138,9 @@ export default function TambahMahasiswa() {
                   error.message.includes('too many') ||
                   error.message.includes('429')) {
           return { success: false, reason: 'rate_limit' };
+        } else if (error.message.includes('row-level security') ||
+                  error.message.includes('42501')) {
+          return { success: false, reason: 'rls_policy' };
         }
       }
       
@@ -157,6 +161,7 @@ export default function TambahMahasiswa() {
     let addedCount = 0;
     let existingCount = 0;
     let errorCount = 0;
+    let rlsErrorCount = 0;
     const addedStudents: string[] = [];
     const existingStudents: string[] = [];
     const errorStudents: string[] = [];
@@ -187,6 +192,11 @@ export default function TambahMahasiswa() {
                 errorStudents.push(`${student.nim} - ${student.nama} (Rate limit)`);
                 console.log(`Rate limit hit for student ${student.nim}`);
                 break;
+              case 'rls_policy':
+                rlsErrorCount++;
+                errorStudents.push(`${student.nim} - ${student.nama} (RLS Policy)`);
+                console.log(`RLS policy violation for student ${student.nim}`);
+                break;
               default:
                 errorCount++;
                 errorStudents.push(`${student.nim} - ${student.nama}`);
@@ -208,14 +218,25 @@ export default function TambahMahasiswa() {
       if (existingCount > 0) {
         resultMessage += `ℹ️ ${existingCount} mahasiswa sudah terdaftar sebelumnya. `;
       }
+      if (rlsErrorCount > 0) {
+        resultMessage += `🔒 ${rlsErrorCount} mahasiswa gagal ditambahkan karena masalah izin (RLS). `;
+      }
       if (errorCount > 0) {
-        resultMessage += `❌ ${errorCount} mahasiswa gagal ditambahkan.`;
+        resultMessage += `❌ ${errorCount} mahasiswa gagal ditambahkan karena error lain.`;
       }
 
-      setMessage({ 
-        type: addedCount > 0 ? 'success' : existingCount > 0 ? 'info' : 'error', 
-        text: resultMessage || 'Tidak ada mahasiswa yang ditambahkan'
-      });
+      // If RLS errors occurred, show specific message
+      if (rlsErrorCount > 0) {
+        setMessage({ 
+          type: 'error', 
+          text: `${resultMessage} Masalah RLS terdeteksi. Silakan gunakan tombol Debug untuk informasi lebih lanjut.`
+        });
+      } else {
+        setMessage({ 
+          type: addedCount > 0 ? 'success' : existingCount > 0 ? 'info' : 'error', 
+          text: resultMessage || 'Tidak ada mahasiswa yang ditambahkan'
+        });
+      }
 
       // Clear processed data after processing
       if (addedCount > 0 || existingCount > 0) {
@@ -232,12 +253,85 @@ export default function TambahMahasiswa() {
     }
   };
 
+  const runDebugCheck = async () => {
+    setLoading(true);
+    setMessage({ type: 'info', text: 'Menjalankan debug check...' });
+    
+    try {
+      // Run debug function
+      await debugAdminStatus();
+      
+      // Get current user info
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      let debugOutput = 'DEBUG INFORMATION:\n\n';
+      
+      if (user) {
+        debugOutput += `Current Auth User ID: ${user.id}\n`;
+        debugOutput += `Current Auth User Email: ${user.email}\n\n`;
+        
+        // Check public.users entry
+        const { data: publicUser } = await supabase
+          .from('users')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+        
+        if (publicUser) {
+          debugOutput += `Public User Found:\n`;
+          debugOutput += `- ID: ${publicUser.id}\n`;
+          debugOutput += `- NIM: ${publicUser.nim}\n`;
+          debugOutput += `- Role: ${publicUser.role}\n`;
+          debugOutput += `- Level: ${publicUser.level_user}\n\n`;
+        } else {
+          debugOutput += `Public User: NOT FOUND\n\n`;
+        }
+        
+        // Check admin users
+        const { data: adminUsers } = await supabase
+          .from('users')
+          .select('id, nim, role, level_user')
+          .eq('role', 'admin');
+        
+        debugOutput += `Admin Users Found: ${adminUsers?.length || 0}\n`;
+        adminUsers?.forEach((admin, index) => {
+          debugOutput += `- Admin ${index + 1}: ID=${admin.id}, NIM=${admin.nim}\n`;
+        });
+        
+        // Check RLS policies
+        debugOutput += `\nRLS Policy Check:\n`;
+        const isCurrentUserAdmin = adminUsers?.some(admin => admin.id === user.id);
+        debugOutput += `- Current user is admin: ${isCurrentUserAdmin}\n`;
+        
+      } else {
+        debugOutput += 'No authenticated user found\n';
+      }
+      
+      setDebugInfo(debugOutput);
+      setMessage({ type: 'success', text: 'Debug check completed. Lihat hasil di bawah.' });
+      
+    } catch (error) {
+      console.error('Debug error:', error);
+      setMessage({ type: 'error', text: 'Error saat menjalankan debug check' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const apiConfigured = !!import.meta.env.VITE_CLUSTERING_API_URL;
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Tambah Mahasiswa</h1>
+        <button
+          onClick={runDebugCheck}
+          disabled={loading}
+          className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors duration-150 disabled:opacity-50 flex items-center"
+        >
+          <Bug className="w-4 h-4 mr-2" />
+          Debug Check
+        </button>
       </div>
 
       {/* API Configuration Warning */}
@@ -268,6 +362,16 @@ export default function TambahMahasiswa() {
             {message.type === 'info' && <AlertCircle className="w-5 h-5 mr-2" />}
             {message.text}
           </div>
+        </div>
+      )}
+
+      {/* Debug Info */}
+      {debugInfo && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-800 mb-2">Debug Information</h3>
+          <pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono bg-white p-3 rounded border overflow-x-auto">
+            {debugInfo}
+          </pre>
         </div>
       )}
 
@@ -428,6 +532,7 @@ export default function TambahMahasiswa() {
                 <li><strong>Proses berurutan:</strong> Setiap mahasiswa akan diproses satu per satu dengan jeda 500ms</li>
                 <li>Progress akan ditampilkan selama proses penambahan data</li>
                 <li>Semua data mahasiswa akan ditampilkan dalam tabel untuk review sebelum ditambahkan</li>
+                <li><strong>Debug Check:</strong> Gunakan tombol Debug Check jika mengalami masalah RLS</li>
               </ul>
             </div>
           </div>

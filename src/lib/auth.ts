@@ -116,6 +116,19 @@ export const updatePassword = async (newPassword: string): Promise<boolean> => {
   }
 };
 
+// Enhanced password generation for better Supabase Auth compatibility
+const generateSecurePassword = (nim: string): string => {
+  // For NIM-based passwords, ensure they meet Supabase Auth requirements
+  // Minimum 6 characters (already met with 13-digit NIM)
+  // Add complexity if needed
+  if (nim.length >= 6) {
+    return nim; // Use NIM directly if it's long enough
+  } else {
+    // Fallback: pad with secure suffix
+    return nim + 'Pnl' + Math.random().toString(36).substring(2, 5);
+  }
+};
+
 export const registerUser = async (userData: {
   email: string;
   password: string;
@@ -132,6 +145,10 @@ export const registerUser = async (userData: {
 }): Promise<AppUser | null> => {
   try {
     console.log('Starting registration for:', userData.nim);
+
+    // Generate secure password
+    const securePassword = generateSecurePassword(userData.password);
+    console.log('Using password length:', securePassword.length);
 
     // Check if user already exists in public.users table
     const { data: existingUser, error: checkError } = await supabase
@@ -153,7 +170,7 @@ export const registerUser = async (userData: {
       // Try to sign in to get the auth user ID
       const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
         email: userData.email,
-        password: userData.password,
+        password: securePassword,
       });
 
       if (signInError) {
@@ -162,10 +179,11 @@ export const registerUser = async (userData: {
         // Create user in auth.users
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email: userData.email,
-          password: userData.password,
+          password: securePassword,
         });
 
         if (signUpError) {
+          console.error('Auth signup error:', signUpError);
           if (signUpError.message.includes('User already registered')) {
             // User exists in auth but sign in failed, try to get user ID
             const { data: { user: authUser } } = await supabase.auth.getUser();
@@ -190,6 +208,7 @@ export const registerUser = async (userData: {
         .update({ 
           id: authUserId,
           ...userData,
+          password: undefined, // Don't store password in public table
           nim: userData.nim // Ensure NIM stays the same
         })
         .eq('nim', userData.nim);
@@ -207,19 +226,20 @@ export const registerUser = async (userData: {
       // Create user in Supabase Auth first
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: userData.email,
-        password: userData.password,
+        password: securePassword,
       });
 
       if (authError) {
+        console.error('Auth signup error:', authError);
         if (authError.message.includes('User already registered')) {
           // User exists in auth, try to sign in to get ID
           const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
             email: userData.email,
-            password: userData.password,
+            password: securePassword,
           });
 
           if (signInError) {
-            throw new Error('User exists in auth but cannot sign in');
+            throw new Error('User exists in auth but cannot sign in: ' + signInError.message);
           }
 
           authUserId = signInData.user!.id;
@@ -229,6 +249,8 @@ export const registerUser = async (userData: {
       } else {
         authUserId = authData.user!.id;
       }
+
+      console.log('Auth user created/found with ID:', authUserId);
 
       // Insert user data into our custom users table
       const { error: dbError } = await supabase
@@ -322,5 +344,33 @@ export const checkAuth = async (): Promise<AppUser | null> => {
     console.error('Auth check error:', error);
     localStorage.removeItem('user');
     return null;
+  }
+};
+
+// Debug function to check admin status
+export const debugAdminStatus = async (): Promise<void> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    console.log('Current auth user:', user);
+    
+    if (user) {
+      const { data: userData } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+      
+      console.log('Current user data:', userData);
+      
+      // Check if user can see admin users
+      const { data: adminUsers } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'admin');
+      
+      console.log('Visible admin users:', adminUsers);
+    }
+  } catch (error) {
+    console.error('Debug error:', error);
   }
 };
