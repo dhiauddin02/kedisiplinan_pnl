@@ -75,9 +75,6 @@ export default function Clustering() {
       // Send to clustering API
       const results = await clusteringAPI.processFile(file!, sheetName);
       
-      // Check and register students (simplified approach)
-      await checkAndRegisterStudents(results);
-      
       setClusteringResults(results);
       setMessage({ type: 'success', text: 'Clustering berhasil diproses!' });
     } catch (error) {
@@ -102,75 +99,6 @@ export default function Clustering() {
     }
   };
 
-  const checkAndRegisterStudents = async (results: any[]) => {
-    let registeredCount = 0;
-    let existingCount = 0;
-    
-    for (const result of results) {
-      try {
-        const nim = result.NIM?.toString();
-        if (!nim) continue;
-
-        // Check if student exists in our users table
-        const { data: existingUser, error: checkError } = await supabase
-          .from('users')
-          .select('id, nim')
-          .eq('nim', nim)
-          .maybeSingle();
-
-        if (checkError && checkError.code !== 'PGRST116') {
-          console.error('Error checking existing user:', checkError);
-          continue;
-        }
-
-        if (existingUser) {
-          existingCount++;
-          console.log(`Student ${nim} already exists, skipping registration`);
-          continue;
-        }
-
-        // For new students, we'll create a placeholder record
-        // The actual auth user will be created when they first try to login
-        const email = `${nim}@student.pnl.ac.id`;
-        
-        // Insert placeholder user record (without auth user creation)
-        const { error: insertError } = await supabase
-          .from('users')
-          .insert({
-            // We'll use a temporary UUID that will be replaced when they actually register
-            id: crypto.randomUUID(),
-            nim: nim,
-            nama: result['Nama Mahasiswa'] || `Mahasiswa ${nim}`,
-            email: email,
-            role: 'mahasiswa',
-            tingkat: result.TINGKAT,
-            kelas: result.KELAS,
-            level_user: 0
-          });
-
-        if (insertError) {
-          console.error('Error inserting user data:', insertError);
-          continue;
-        }
-
-        registeredCount++;
-        console.log(`Successfully registered placeholder for student ${nim}`);
-        
-      } catch (error) {
-        console.error('Error registering student:', error);
-      }
-    }
-    
-    console.log(`Registration summary: ${registeredCount} new students, ${existingCount} existing students`);
-    
-    if (registeredCount > 0) {
-      setMessage({ 
-        type: 'info', 
-        text: `${registeredCount} mahasiswa baru telah didaftarkan. Mereka dapat login menggunakan NIM sebagai username dan password.` 
-      });
-    }
-  };
-
   const saveResults = async () => {
     if (!selectedBatch) {
       setMessage({ type: 'error', text: 'Pilih batch terlebih dahulu' });
@@ -185,7 +113,7 @@ export default function Clustering() {
     try {
       setLoading(true);
       
-      // Get user IDs for the results
+      // Get user IDs for the results based on NIM
       const resultsWithUserIds = await Promise.all(
         clusteringResults.map(async (result) => {
           const nim = result.NIM?.toString();
@@ -208,7 +136,7 @@ export default function Clustering() {
       const validResults = resultsWithUserIds.filter(result => result && result.user_id);
 
       if (validResults.length === 0) {
-        setMessage({ type: 'error', text: 'Tidak ada data mahasiswa yang valid untuk disimpan' });
+        setMessage({ type: 'error', text: 'Tidak ada data mahasiswa yang valid untuk disimpan. Pastikan mahasiswa sudah terdaftar di sistem.' });
         return;
       }
 

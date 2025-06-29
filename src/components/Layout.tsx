@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Navigate, useNavigate } from 'react-router-dom';
-import { Menu, X, User, LogOut, Home, BarChart3, Upload, FileText, Users, Key, UserCheck } from 'lucide-react';
+import { Menu, X, User, LogOut, Home, BarChart3, Upload, FileText, Users, Key, UserCheck, UserPlus } from 'lucide-react';
 import { getCurrentUser, logout, checkAuth } from '../lib/auth';
 
 export default function Layout() {
@@ -42,6 +42,7 @@ export default function Layout() {
     ...(user.level_user === 1 ? [
       { icon: Home, label: 'Dashboard', path: '/dashboard' },
       { icon: Upload, label: 'Clustering', path: '/clustering' },
+      { icon: UserPlus, label: 'Tambah Mahasiswa', path: '/tambah-mahasiswa' },
       { icon: BarChart3, label: 'Hasil Clustering', path: '/hasil-clustering' },
       { icon: FileText, label: 'Laporan', path: '/laporan' },
     ] : []),

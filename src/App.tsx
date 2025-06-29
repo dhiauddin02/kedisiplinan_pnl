@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Clustering from './components/Clustering';
+import TambahMahasiswa from './components/TambahMahasiswa';
 import HasilClustering from './components/HasilClustering';
 import Laporan from './components/Laporan';
 import ClusteringPribadi from './components/ClusteringPribadi';
@@ -53,6 +54,7 @@ function App() {
               <Route index element={<Navigate to="/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="clustering" element={<Clustering />} />
+              <Route path="tambah-mahasiswa" element={<TambahMahasiswa />} />
               <Route path="hasil-clustering" element={<HasilClustering />} />
               <Route path="laporan" element={<Laporan />} />
             </>
