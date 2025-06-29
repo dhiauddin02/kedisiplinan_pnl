@@ -133,7 +133,7 @@ export default function Laporan() {
   const generateReportMessage = (result: any, report: any) => {
     return `LAPORAN CLUSTERING KEDISIPLINAN MAHASISWA
 
-Periode: ${report.batchInfo.periode.nama_periode} ${report.batchInfo.periode.tahun_ajaran}
+Periode: ${report.batchInfo.periode.nama_periode}
 Batch: ${report.batchInfo.nama_batch}
 
 DATA MAHASISWA:
@@ -188,7 +188,7 @@ Bagian Akademik`;
               <option value="">Pilih Periode</option>
               {periods.map(period => (
                 <option key={period.id} value={period.id}>
-                  {period.nama_periode} {period.tahun_ajaran}
+                  {period.nama_periode}
                 </option>
               ))}
             </select>
@@ -300,7 +300,7 @@ Bagian Akademik`;
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                   <div>
                     <span className="text-gray-600">Periode:</span>
-                    <span className="ml-2 font-medium">{report.batchInfo.periode.nama_periode} {report.batchInfo.periode.tahun_ajaran}</span>
+                    <span className="ml-2 font-medium">{report.batchInfo.periode.nama_periode}</span>
                   </div>
                   <div>
                     <span className="text-gray-600">Batch:</span>

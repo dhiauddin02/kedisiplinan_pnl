@@ -13,7 +13,7 @@ export default function HasilClustering() {
   const [showAddPeriodModal, setShowAddPeriodModal] = useState(false);
   const [showAddBatchModal, setShowAddBatchModal] = useState(false);
   const [showResultsModal, setShowResultsModal] = useState(false);
-  const [newPeriod, setNewPeriod] = useState({ nama_periode: '', tahun_ajaran: '', semester: '' });
+  const [newPeriod, setNewPeriod] = useState({ nama_periode: '', semester: '' });
   const [newBatch, setNewBatch] = useState('');
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -34,21 +34,24 @@ export default function HasilClustering() {
   };
 
   const addPeriod = async () => {
-    if (!newPeriod.nama_periode || !newPeriod.tahun_ajaran) {
-      setMessage({ type: 'error', text: 'Lengkapi semua field' });
+    if (!newPeriod.nama_periode) {
+      setMessage({ type: 'error', text: 'Nama periode harus diisi' });
       return;
     }
 
     try {
       const { error } = await supabase
         .from('periode')
-        .insert(newPeriod);
+        .insert({
+          nama_periode: newPeriod.nama_periode,
+          semester: newPeriod.semester || null
+        });
 
       if (error) throw error;
 
       setMessage({ type: 'success', text: 'Periode berhasil ditambahkan' });
       setShowAddPeriodModal(false);
-      setNewPeriod({ nama_periode: '', tahun_ajaran: '', semester: '' });
+      setNewPeriod({ nama_periode: '', semester: '' });
       loadPeriodsAndBatches();
     } catch (error) {
       console.error('Error adding period:', error);
@@ -121,7 +124,7 @@ Politeknik Negeri Lhokseumawe
 di Tempat
 
 Dengan hormat,
-Berdasarkan hasil evaluasi rekapitulasi absensi mahasiswa untuk Semester ${periode?.nama_periode} Tahun Akademik ${periode?.tahun_ajaran}, bersama ini kami sampaikan informasi terkait kehadiran Anda sebagai berikut:
+Berdasarkan hasil evaluasi rekapitulasi absensi mahasiswa untuk Semester ${periode?.nama_periode}, bersama ini kami sampaikan informasi terkait kehadiran Anda sebagai berikut:
 
 Keterangan	Nilai
 Nama Mahasiswa	${result.user?.nama || result.nama_mahasiswa}
@@ -270,7 +273,7 @@ Politeknik Negeri Lhokseumawe`;
               <option value="">Pilih Periode</option>
               {periods.map(period => (
                 <option key={period.id} value={period.id}>
-                  {period.nama_periode} {period.tahun_ajaran}
+                  {period.nama_periode}
                 </option>
               ))}
             </select>
@@ -304,9 +307,8 @@ Politeknik Negeri Lhokseumawe`;
             {periods.map(period => (
               <div key={period.id} className="p-3 bg-gray-50 rounded-lg">
                 <div className="font-medium text-gray-900">{period.nama_periode}</div>
-                <div className="text-sm text-gray-500">{period.tahun_ajaran}</div>
                 {period.semester && (
-                  <div className="text-xs text-gray-400">Semester: {period.semester}</div>
+                  <div className="text-sm text-gray-500">Semester: {period.semester}</div>
                 )}
               </div>
             ))}
@@ -320,7 +322,7 @@ Politeknik Negeri Lhokseumawe`;
               <div key={batch.id} className="p-3 bg-gray-50 rounded-lg">
                 <div className="font-medium text-gray-900">{batch.nama_batch}</div>
                 <div className="text-sm text-gray-500">
-                  {batch.periode?.nama_periode} {batch.periode?.tahun_ajaran}
+                  {batch.periode?.nama_periode}
                 </div>
                 <div className="text-xs text-gray-400">
                   {new Date(batch.tgl_batch).toLocaleDateString('id-ID')}
@@ -339,24 +341,13 @@ Politeknik Negeri Lhokseumawe`;
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nama Periode</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nama Periode *</label>
                 <input
                   type="text"
                   value={newPeriod.nama_periode}
                   onChange={(e) => setNewPeriod({...newPeriod, nama_periode: e.target.value})}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="contoh: Ganjil"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Tahun Ajaran</label>
-                <input
-                  type="text"
-                  value={newPeriod.tahun_ajaran}
-                  onChange={(e) => setNewPeriod({...newPeriod, tahun_ajaran: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="contoh: 2024/2025"
+                  placeholder="contoh: Ganjil 2024/2025"
                 />
               </div>
 
@@ -398,7 +389,23 @@ Politeknik Negeri Lhokseumawe`;
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nama Batch</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Periode</label>
+                <select
+                  value={selectedPeriod}
+                  onChange={(e) => setSelectedPeriod(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Pilih Periode</option>
+                  {periods.map(period => (
+                    <option key={period.id} value={period.id}>
+                      {period.nama_periode}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Nama Batch *</label>
                 <input
                   type="text"
                   value={newBatch}

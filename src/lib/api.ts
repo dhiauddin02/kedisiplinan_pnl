@@ -131,12 +131,11 @@ export const databaseAPI = {
     return data;
   },
 
-  async createPeriode(namaPeriode: string, tahunAjaran: string, semester?: string) {
+  async createPeriode(namaPeriode: string, semester?: string) {
     const { data, error } = await supabase
       .from('periode')
       .insert({ 
-        nama_periode: namaPeriode, 
-        tahun_ajaran: tahunAjaran,
+        nama_periode: namaPeriode,
         semester: semester || null
       })
       .select();

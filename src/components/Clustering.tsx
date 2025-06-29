@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Play, Save, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings, Plus } from 'lucide-react';
+import { Upload, Play, Save, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings } from 'lucide-react';
 import { clusteringAPI, databaseAPI } from '../lib/api';
 import { supabase } from '../lib/supabase';
 
@@ -11,16 +11,11 @@ export default function Clustering() {
   const [clusteringResults, setClusteringResults] = useState<any[]>([]);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
   const [showSaveModal, setShowSaveModal] = useState(false);
-  const [showAddPeriodModal, setShowAddPeriodModal] = useState(false);
-  const [showAddBatchModal, setShowAddBatchModal] = useState(false);
   
   const [periods, setPeriods] = useState<any[]>([]);
   const [batches, setBatches] = useState<any[]>([]);
   const [selectedPeriod, setSelectedPeriod] = useState('');
   const [selectedBatch, setSelectedBatch] = useState('');
-  
-  const [newPeriod, setNewPeriod] = useState({ nama_periode: '', tahun_ajaran: '', semester: '' });
-  const [newBatch, setNewBatch] = useState('');
 
   const sheetOptions = [
     'REKAP-TK1', 'REKAP-TK2', 'REKAP-TK3', 'REKAP-TK4'
@@ -39,56 +34,6 @@ export default function Clustering() {
       setBatches(batchesData || []);
     } catch (error) {
       console.error('Error loading periods and batches:', error);
-    }
-  };
-
-  const addPeriod = async () => {
-    if (!newPeriod.nama_periode || !newPeriod.tahun_ajaran) {
-      setMessage({ type: 'error', text: 'Lengkapi semua field yang wajib' });
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('periode')
-        .insert(newPeriod);
-
-      if (error) throw error;
-
-      setMessage({ type: 'success', text: 'Periode berhasil ditambahkan' });
-      setShowAddPeriodModal(false);
-      setNewPeriod({ nama_periode: '', tahun_ajaran: '', semester: '' });
-      loadPeriodsAndBatches();
-    } catch (error) {
-      console.error('Error adding period:', error);
-      setMessage({ type: 'error', text: 'Gagal menambahkan periode' });
-    }
-  };
-
-  const addBatch = async () => {
-    if (!newBatch || !selectedPeriod) {
-      setMessage({ type: 'error', text: 'Pilih periode dan isi nama batch' });
-      return;
-    }
-
-    try {
-      const { error } = await supabase
-        .from('batch')
-        .insert({
-          nama_batch: newBatch,
-          id_periode: selectedPeriod,
-          tgl_batch: new Date().toISOString().split('T')[0]
-        });
-
-      if (error) throw error;
-
-      setMessage({ type: 'success', text: 'Batch berhasil ditambahkan' });
-      setShowAddBatchModal(false);
-      setNewBatch('');
-      loadPeriodsAndBatches();
-    } catch (error) {
-      console.error('Error adding batch:', error);
-      setMessage({ type: 'error', text: 'Gagal menambahkan batch' });
     }
   };
 
@@ -328,29 +273,10 @@ export default function Clustering() {
         </div>
       )}
 
-      {/* Periode dan Batch Management */}
+      {/* Pilih Periode dan Batch */}
       <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Manajemen Periode & Batch</h2>
+        <h2 className="text-xl font-semibold text-gray-900 mb-4">Pilih Periode & Batch</h2>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <button
-            onClick={() => setShowAddPeriodModal(true)}
-            className="flex items-center justify-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-150"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Tambah Periode
-          </button>
-
-          <button
-            onClick={() => setShowAddBatchModal(true)}
-            disabled={!selectedPeriod}
-            className="flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Tambah Batch
-          </button>
-        </div>
-
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Periode *</label>
@@ -362,7 +288,7 @@ export default function Clustering() {
               <option value="">Pilih Periode</option>
               {periods.map(period => (
                 <option key={period.id} value={period.id}>
-                  {period.nama_periode} {period.tahun_ajaran}
+                  {period.nama_periode}
                 </option>
               ))}
             </select>
@@ -386,6 +312,14 @@ export default function Clustering() {
             </select>
           </div>
         </div>
+
+        {!selectedPeriod || !selectedBatch ? (
+          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-700">
+              <strong>Catatan:</strong> Silakan pilih periode dan batch terlebih dahulu. Jika belum ada periode atau batch yang sesuai, Anda dapat menambahkannya di halaman <strong>Hasil Clustering</strong>.
+            </p>
+          </div>
+        ) : null}
       </div>
 
       {/* Upload Section */}
@@ -504,112 +438,6 @@ export default function Clustering() {
         </div>
       )}
 
-      {/* Add Period Modal */}
-      {showAddPeriodModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96 max-w-md mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Tambah Periode</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nama Periode *</label>
-                <input
-                  type="text"
-                  value={newPeriod.nama_periode}
-                  onChange={(e) => setNewPeriod({...newPeriod, nama_periode: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="contoh: Ganjil"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Tahun Ajaran *</label>
-                <input
-                  type="text"
-                  value={newPeriod.tahun_ajaran}
-                  onChange={(e) => setNewPeriod({...newPeriod, tahun_ajaran: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="contoh: 2024/2025"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Semester (Opsional)</label>
-                <input
-                  type="text"
-                  value={newPeriod.semester}
-                  onChange={(e) => setNewPeriod({...newPeriod, semester: e.target.value})}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="contoh: Ganjil"
-                />
-              </div>
-            </div>
-
-            <div className="flex space-x-4 mt-6">
-              <button
-                onClick={() => setShowAddPeriodModal(false)}
-                className="flex-1 px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors duration-150"
-              >
-                Batal
-              </button>
-              <button
-                onClick={addPeriod}
-                className="flex-1 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors duration-150"
-              >
-                Tambah
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Add Batch Modal */}
-      {showAddBatchModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 w-96 max-w-md mx-4">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">Tambah Batch</h3>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Periode Terpilih</label>
-                <input
-                  type="text"
-                  value={periods.find(p => p.id === selectedPeriod)?.nama_periode + ' ' + periods.find(p => p.id === selectedPeriod)?.tahun_ajaran || 'Belum dipilih'}
-                  disabled
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Nama Batch *</label>
-                <input
-                  type="text"
-                  value={newBatch}
-                  onChange={(e) => setNewBatch(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="contoh: Batch 1"
-                />
-              </div>
-            </div>
-
-            <div className="flex space-x-4 mt-6">
-              <button
-                onClick={() => setShowAddBatchModal(false)}
-                className="flex-1 px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors duration-150"
-              >
-                Batal
-              </button>
-              <button
-                onClick={addBatch}
-                className="flex-1 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors duration-150"
-              >
-                Tambah
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Save Modal */}
       {showSaveModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -619,7 +447,7 @@ export default function Clustering() {
             <div className="space-y-4">
               <div className="bg-gray-50 p-4 rounded-lg">
                 <p className="text-sm text-gray-600 mb-2">Periode:</p>
-                <p className="font-medium">{periods.find(p => p.id === selectedPeriod)?.nama_periode} {periods.find(p => p.id === selectedPeriod)?.tahun_ajaran}</p>
+                <p className="font-medium">{periods.find(p => p.id === selectedPeriod)?.nama_periode}</p>
                 
                 <p className="text-sm text-gray-600 mb-2 mt-3">Batch:</p>
                 <p className="font-medium">{batches.find(b => b.id === selectedBatch)?.nama_batch}</p>
