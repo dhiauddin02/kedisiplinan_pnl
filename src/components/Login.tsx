@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, User, Lock, LogIn } from 'lucide-react';
+import { Eye, EyeOff, User, Lock, LogIn, Mail } from 'lucide-react';
 import { login, checkAuth } from '../lib/auth';
 
 export default function Login() {
-  const [nim, setNim] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -19,7 +19,8 @@ export default function Login() {
         if (user.level_user === 1) {
           navigate('/dashboard');
         } else {
-          if (!user.nama_wali || !user.no_wa_wali) {
+          // Check if student needs to complete profile
+          if (!user.nama || !user.nim) {
             navigate('/lengkapi-data');
           } else {
             navigate('/clustering-pribadi');
@@ -37,8 +38,8 @@ export default function Login() {
     setError('');
 
     try {
-      console.log('Attempting login with NIM:', nim);
-      const user = await login(nim, password);
+      console.log('Attempting login with email:', email);
+      const user = await login(email, password);
       
       if (user) {
         console.log('Login successful, user:', user);
@@ -46,8 +47,8 @@ export default function Login() {
         if (user.level_user === 1) {
           navigate('/dashboard');
         } else {
-          // Check if student needs to complete data
-          if (!user.nama_wali || !user.no_wa_wali) {
+          // Check if student needs to complete profile
+          if (!user.nama || !user.nim) {
             navigate('/lengkapi-data');
           } else {
             navigate('/clustering-pribadi');
@@ -55,7 +56,7 @@ export default function Login() {
         }
       } else {
         console.log('Login failed - no user returned');
-        setError('NIM atau password salah');
+        setError('Email atau password salah');
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -79,16 +80,16 @@ export default function Login() {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              NIM
+              Email
             </label>
             <div className="relative">
-              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
-                type="text"
-                value={nim}
-                onChange={(e) => setNim(e.target.value)}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150"
-                placeholder="Masukkan NIM"
+                placeholder="Masukkan email"
                 required
               />
             </div>
@@ -145,7 +146,10 @@ export default function Login() {
             Untuk akun admin default, gunakan:
           </p>
           <p className="text-xs text-gray-500 mt-1">
-            NIM: admin | Password: admin123
+            Email: admin@pnl.ac.id | Password: admin123
+          </p>
+          <p className="text-xs text-gray-500 mt-2">
+            Mahasiswa: Gunakan email yang diberikan admin dan NIM sebagai password
           </p>
         </div>
       </div>

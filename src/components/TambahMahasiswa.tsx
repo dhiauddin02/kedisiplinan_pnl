@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings, Bug } from 'lucide-react';
 import { clusteringAPI } from '../lib/api';
-import { registerUserWithoutSessionChange, debugAdminStatus, getCurrentUser } from '../lib/auth';
-import { supabase } from '../lib/supabase';
+import { registerUserAuthOnly, debugAdminStatus, getCurrentUser } from '../lib/auth';
 import { generateEmail } from '../lib/utils';
 
 export default function TambahMahasiswa() {
@@ -81,43 +80,17 @@ export default function TambahMahasiswa() {
     }
   };
 
-  const checkExistingUser = async (nim: string): Promise<boolean> => {
-    try {
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('id')
-        .eq('nim', nim)
-        .maybeSingle();
-      
-      return !!existingUser;
-    } catch (error) {
-      console.error('Error checking existing user:', error);
-      return false;
-    }
-  };
-
   const registerSingleStudent = async (student: any): Promise<{ success: boolean; reason?: string }> => {
     try {
-      // Check if user already exists first
-      const userExists = await checkExistingUser(student.nim);
-      
-      if (userExists) {
-        return { success: false, reason: 'already_exists' };
-      }
-
       // Generate email
       const email = generateEmail(student.nama, student.nim);
 
-      // Register the student using the new function that doesn't change session
-      const newUser = await registerUserWithoutSessionChange({
+      // Register the student using auth-only registration
+      const newUser = await registerUserAuthOnly({
         email: email,
         password: student.nim, // Use NIM as default password
         nama: student.nama,
         nim: student.nim,
-        role: 'mahasiswa',
-        level_user: 0,
-        tingkat: student.tingkat,
-        kelas: student.kelas
       });
 
       if (newUser) {
@@ -138,9 +111,6 @@ export default function TambahMahasiswa() {
                   error.message.includes('too many') ||
                   error.message.includes('429')) {
           return { success: false, reason: 'rate_limit' };
-        } else if (error.message.includes('row-level security') ||
-                  error.message.includes('42501')) {
-          return { success: false, reason: 'rls_policy' };
         }
       }
       
@@ -163,12 +133,11 @@ export default function TambahMahasiswa() {
 
     setLoading(true);
     setProgress({ current: 0, total: processedData.length });
-    setMessage({ type: 'info', text: 'Memulai penambahan mahasiswa dengan mempertahankan sesi admin...' });
+    setMessage({ type: 'info', text: 'Memulai pembuatan akun autentikasi untuk mahasiswa...' });
 
     let addedCount = 0;
     let existingCount = 0;
     let errorCount = 0;
-    let rlsErrorCount = 0;
     const addedStudents: string[] = [];
     const existingStudents: string[] = [];
     const errorStudents: string[] = [];
@@ -187,7 +156,7 @@ export default function TambahMahasiswa() {
         if (result.success) {
           addedCount++;
           addedStudents.push(`${student.nim} - ${student.nama}`);
-          console.log(`Successfully added student ${student.nim}`);
+          console.log(`Successfully created auth for student ${student.nim}`);
         } else {
           switch (result.reason) {
             case 'already_exists':
@@ -200,15 +169,10 @@ export default function TambahMahasiswa() {
               errorStudents.push(`${student.nim} - ${student.nama} (Rate limit)`);
               console.log(`Rate limit hit for student ${student.nim}`);
               break;
-            case 'rls_policy':
-              rlsErrorCount++;
-              errorStudents.push(`${student.nim} - ${student.nama} (RLS Policy)`);
-              console.log(`RLS policy violation for student ${student.nim}`);
-              break;
             default:
               errorCount++;
               errorStudents.push(`${student.nim} - ${student.nama}`);
-              console.log(`Failed to add student ${student.nim}`);
+              console.log(`Failed to create auth for student ${student.nim}`);
           }
         }
 
@@ -221,30 +185,19 @@ export default function TambahMahasiswa() {
       // Show detailed results
       let resultMessage = '';
       if (addedCount > 0) {
-        resultMessage += `✅ ${addedCount} mahasiswa berhasil ditambahkan. `;
+        resultMessage += `✅ ${addedCount} akun autentikasi mahasiswa berhasil dibuat. `;
       }
       if (existingCount > 0) {
-        resultMessage += `ℹ️ ${existingCount} mahasiswa sudah terdaftar sebelumnya. `;
-      }
-      if (rlsErrorCount > 0) {
-        resultMessage += `🔒 ${rlsErrorCount} mahasiswa gagal ditambahkan karena masalah izin (RLS). `;
+        resultMessage += `ℹ️ ${existingCount} mahasiswa sudah memiliki akun sebelumnya. `;
       }
       if (errorCount > 0) {
-        resultMessage += `❌ ${errorCount} mahasiswa gagal ditambahkan karena error lain.`;
+        resultMessage += `❌ ${errorCount} mahasiswa gagal diproses.`;
       }
 
-      // If RLS errors occurred, show specific message
-      if (rlsErrorCount > 0) {
-        setMessage({ 
-          type: 'error', 
-          text: `${resultMessage} Masalah RLS terdeteksi. Silakan gunakan tombol Debug untuk informasi lebih lanjut.`
-        });
-      } else {
-        setMessage({ 
-          type: addedCount > 0 ? 'success' : existingCount > 0 ? 'info' : 'error', 
-          text: resultMessage || 'Tidak ada mahasiswa yang ditambahkan'
-        });
-      }
+      setMessage({ 
+        type: addedCount > 0 ? 'success' : existingCount > 0 ? 'info' : 'error', 
+        text: resultMessage || 'Tidak ada mahasiswa yang diproses'
+      });
 
       // Clear processed data after processing
       if (addedCount > 0 || existingCount > 0) {
@@ -254,7 +207,7 @@ export default function TambahMahasiswa() {
 
     } catch (error) {
       console.error('Error adding students:', error);
-      setMessage({ type: 'error', text: 'Gagal menambahkan data mahasiswa' });
+      setMessage({ type: 'error', text: 'Gagal memproses data mahasiswa' });
     } finally {
       setLoading(false);
       setProgress({ current: 0, total: 0 });
@@ -275,70 +228,8 @@ export default function TambahMahasiswa() {
     setMessage({ type: 'info', text: 'Menjalankan debug check...' });
     
     try {
-      // Run debug function
       await debugAdminStatus();
-      
-      // Get current user info
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      let debugOutput = 'DEBUG INFORMATION:\n\n';
-      
-      if (user) {
-        debugOutput += `Current Auth User ID: ${user.id}\n`;
-        debugOutput += `Current Auth User Email: ${user.email}\n\n`;
-        
-        // Check public.users entry
-        const { data: publicUser } = await supabase
-          .from('users')
-          .select('*')
-          .eq('id', user.id)
-          .single();
-        
-        if (publicUser) {
-          debugOutput += `Public User Found:\n`;
-          debugOutput += `- ID: ${publicUser.id}\n`;
-          debugOutput += `- NIM: ${publicUser.nim}\n`;
-          debugOutput += `- Role: ${publicUser.role}\n`;
-          debugOutput += `- Level: ${publicUser.level_user}\n\n`;
-        } else {
-          debugOutput += `Public User: NOT FOUND\n\n`;
-        }
-        
-        // Check admin users
-        const { data: adminUsers } = await supabase
-          .from('users')
-          .select('id, nim, role, level_user')
-          .eq('role', 'admin');
-        
-        debugOutput += `Admin Users Found: ${adminUsers?.length || 0}\n`;
-        adminUsers?.forEach((admin, index) => {
-          debugOutput += `- Admin ${index + 1}: ID=${admin.id}, NIM=${admin.nim}\n`;
-        });
-        
-        // Check RLS policies
-        debugOutput += `\nRLS Policy Check:\n`;
-        const isCurrentUserAdmin = adminUsers?.some(admin => admin.id === user.id);
-        debugOutput += `- Current user is admin: ${isCurrentUserAdmin}\n`;
-        
-        // Check localStorage user
-        const localUser = getCurrentUser();
-        debugOutput += `\nLocalStorage User:\n`;
-        if (localUser) {
-          debugOutput += `- ID: ${localUser.id}\n`;
-          debugOutput += `- NIM: ${localUser.nim}\n`;
-          debugOutput += `- Role: ${localUser.role}\n`;
-          debugOutput += `- Level: ${localUser.level_user}\n`;
-        } else {
-          debugOutput += `- No user in localStorage\n`;
-        }
-        
-      } else {
-        debugOutput += 'No authenticated user found\n';
-      }
-      
-      setDebugInfo(debugOutput);
-      setMessage({ type: 'success', text: 'Debug check completed. Lihat hasil di bawah.' });
-      
+      setMessage({ type: 'success', text: 'Debug check completed. Lihat console untuk detail.' });
     } catch (error) {
       console.error('Debug error:', error);
       setMessage({ type: 'error', text: 'Error saat menjalankan debug check' });
@@ -394,16 +285,6 @@ export default function TambahMahasiswa() {
         </div>
       )}
 
-      {/* Debug Info */}
-      {debugInfo && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <h3 className="text-sm font-medium text-gray-800 mb-2">Debug Information</h3>
-          <pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono bg-white p-3 rounded border overflow-x-auto">
-            {debugInfo}
-          </pre>
-        </div>
-      )}
-
       {/* Progress Bar */}
       {loading && progress.total > 0 && (
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
@@ -418,7 +299,7 @@ export default function TambahMahasiswa() {
             ></div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Memproses mahasiswa dengan mempertahankan sesi admin menggunakan Supabase Admin API...
+            Membuat akun autentikasi untuk mahasiswa...
           </p>
         </div>
       )}
@@ -492,7 +373,7 @@ export default function TambahMahasiswa() {
       {processedData.length > 0 && (
         <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Data Mahasiswa yang Akan Ditambahkan</h2>
+            <h2 className="text-xl font-semibold text-gray-900">Data Mahasiswa yang Akan Diproses</h2>
             <button
               onClick={addStudents}
               disabled={loading}
@@ -503,14 +384,14 @@ export default function TambahMahasiswa() {
               ) : (
                 <UserPlus className="w-4 h-4 mr-2" />
               )}
-              Tambah Semua ({processedData.length})
+              Buat Akun Autentikasi ({processedData.length})
             </button>
           </div>
 
           <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <p className="text-sm text-blue-700">
-              <strong>Total:</strong> {processedData.length} mahasiswa siap ditambahkan. 
-              Sistem akan menggunakan Supabase Admin API untuk mempertahankan sesi admin Anda.
+              <strong>Total:</strong> {processedData.length} mahasiswa akan dibuatkan akun autentikasi. 
+              Mahasiswa akan melengkapi profil mereka sendiri setelah login pertama.
             </p>
           </div>
 
@@ -523,6 +404,7 @@ export default function TambahMahasiswa() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama Mahasiswa</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tingkat/Kelas</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email yang Akan Dibuat</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Password Default</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -534,6 +416,9 @@ export default function TambahMahasiswa() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.tingkat} / {student.kelas}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                       {generateEmail(student.nama, student.nim)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                      {student.nim}
                     </td>
                   </tr>
                 ))}
@@ -550,18 +435,15 @@ export default function TambahMahasiswa() {
             <Users className="w-5 h-5 text-blue-600" />
           </div>
           <div className="ml-3">
-            <h3 className="text-sm font-medium text-blue-800">Informasi Penting</h3>
+            <h3 className="text-sm font-medium text-blue-800">Alur Baru - Self Registration</h3>
             <div className="mt-2 text-sm text-blue-700">
               <ul className="list-disc list-inside space-y-1">
-                <li>Sistem akan mengambil data NIM dan Nama Mahasiswa dari file Excel</li>
-                <li>Email akan dibuat otomatis dengan format: nama_mahasiswa + 3 digit terakhir NIM + @student.pnl.ac.id</li>
-                <li>Sistem akan memeriksa mahasiswa yang sudah terdaftar sebelum menambahkan</li>
-                <li>Password default untuk mahasiswa baru adalah NIM mereka</li>
-                <li>Data tingkat dan kelas juga akan disimpan jika tersedia di file</li>
-                <li><strong>Sesi Admin Aman:</strong> Menggunakan Supabase Admin API untuk mempertahankan sesi admin</li>
-                <li>Progress akan ditampilkan selama proses penambahan data</li>
-                <li>Semua data mahasiswa akan ditampilkan dalam tabel untuk review sebelum ditambahkan</li>
-                <li><strong>Debug Check:</strong> Gunakan tombol Debug Check jika mengalami masalah RLS</li>
+                <li><strong>Admin:</strong> Hanya membuat akun autentikasi dasar untuk mahasiswa</li>
+                <li><strong>Email:</strong> Dibuat otomatis dengan format nama_mahasiswa + 3 digit NIM terakhir + @student.pnl.ac.id</li>
+                <li><strong>Password Default:</strong> NIM mahasiswa</li>
+                <li><strong>Mahasiswa:</strong> Login dengan email dan NIM, kemudian melengkapi profil sendiri</li>
+                <li><strong>Data Profil:</strong> Nama, NIM, tingkat, kelas, data wali, data dosen pembimbing diisi oleh mahasiswa</li>
+                <li><strong>Keamanan:</strong> Sistem menggunakan Supabase Auth untuk autentikasi yang aman</li>
               </ul>
             </div>
           </div>

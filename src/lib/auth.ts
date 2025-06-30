@@ -4,10 +4,10 @@ import type { User, Session } from '@supabase/supabase-js';
 export interface AppUser {
   id: string;
   email: string;
-  nama: string;
-  nim: string;
-  role: string;
-  level_user: number;
+  nama?: string;
+  nim?: string;
+  role?: string;
+  level_user?: number;
   nama_wali?: string;
   no_wa_wali?: string;
   nama_dosen_pembimbing?: string;
@@ -20,27 +20,13 @@ export interface AppUser {
 let adminSession: Session | null = null;
 let adminUser: AppUser | null = null;
 
-export const login = async (nim: string, password: string): Promise<AppUser | null> => {
+export const login = async (email: string, password: string): Promise<AppUser | null> => {
   try {
-    console.log('Starting login process for NIM:', nim);
+    console.log('Starting login process for email:', email);
     
-    // First, get user data from our custom users table using NIM
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('nim', nim.trim())
-      .single();
-
-    if (userError || !userData) {
-      console.error('User not found in users table:', userError);
-      return null;
-    }
-
-    console.log('User found in database:', userData);
-
-    // Try to sign in with email and password using Supabase Auth
+    // Sign in with email and password using Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: userData.email,
+      email: email.trim(),
       password: password.trim(),
     });
 
@@ -56,24 +42,31 @@ export const login = async (nim: string, password: string): Promise<AppUser | nu
 
     console.log('Authentication successful:', authData.user);
 
-    // Return combined user data
+    // Try to get user data from our custom users table
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', authData.user.id)
+      .maybeSingle();
+
+    // Create AppUser object
     const appUser: AppUser = {
       id: authData.user.id,
-      email: userData.email,
-      nama: userData.nama,
-      nim: userData.nim,
-      role: userData.role,
-      level_user: userData.level_user,
-      nama_wali: userData.nama_wali,
-      no_wa_wali: userData.no_wa_wali,
-      nama_dosen_pembimbing: userData.nama_dosen_pembimbing,
-      no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing,
-      tingkat: userData.tingkat,
-      kelas: userData.kelas,
+      email: authData.user.email!,
+      nama: userData?.nama || undefined,
+      nim: userData?.nim || undefined,
+      role: userData?.role || undefined,
+      level_user: userData?.level_user || undefined,
+      nama_wali: userData?.nama_wali || undefined,
+      no_wa_wali: userData?.no_wa_wali || undefined,
+      nama_dosen_pembimbing: userData?.nama_dosen_pembimbing || undefined,
+      no_wa_dosen_pembimbing: userData?.no_wa_dosen_pembimbing || undefined,
+      tingkat: userData?.tingkat || undefined,
+      kelas: userData?.kelas || undefined,
     };
 
     // Store admin session and user if this is an admin login
-    if (userData.role === 'admin' && authData.session) {
+    if (userData?.role === 'admin' && authData.session) {
       adminSession = authData.session;
       adminUser = appUser;
       console.log('Admin session and user stored for restoration');
@@ -94,8 +87,8 @@ export const logout = async () => {
   try {
     await supabase.auth.signOut();
     localStorage.removeItem('user');
-    adminSession = null; // Clear stored admin session
-    adminUser = null; // Clear stored admin user
+    adminSession = null;
+    adminUser = null;
   } catch (error) {
     console.error('Logout error:', error);
     localStorage.removeItem('user');
@@ -131,88 +124,24 @@ export const updatePassword = async (newPassword: string): Promise<boolean> => {
   }
 };
 
-// Function to store current admin session before registration operations
-export const storeAdminSession = async (): Promise<Session | null> => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      const currentUser = getCurrentUser();
-      if (currentUser?.role === 'admin') {
-        adminSession = session;
-        adminUser = currentUser;
-        console.log('Admin session stored:', session.user.id);
-        return session;
-      }
-    }
-    return null;
-  } catch (error) {
-    console.error('Error storing admin session:', error);
-    return null;
-  }
-};
-
-// Function to restore admin session after registration operations
-export const restoreAdminSession = async (): Promise<boolean> => {
-  try {
-    if (!adminSession || !adminUser) {
-      console.log('No admin session or user to restore');
-      return false;
-    }
-
-    console.log('Attempting to restore admin session...');
-
-    // Set the session back to admin
-    const { data, error } = await supabase.auth.setSession({
-      access_token: adminSession.access_token,
-      refresh_token: adminSession.refresh_token
-    });
-
-    if (error) {
-      console.error('Error restoring admin session:', error);
-      return false;
-    }
-
-    // Update localStorage with admin user data
-    localStorage.setItem('user', JSON.stringify(adminUser));
-
-    console.log('Admin session restored successfully');
-    return true;
-  } catch (error) {
-    console.error('Error in restoreAdminSession:', error);
-    return false;
-  }
-};
-
 // Enhanced password generation for better Supabase Auth compatibility
 const generateSecurePassword = (nim: string): string => {
-  // For NIM-based passwords, ensure they meet Supabase Auth requirements
-  // Minimum 6 characters (already met with 13-digit NIM)
-  // Add complexity if needed
   if (nim.length >= 6) {
-    return nim; // Use NIM directly if it's long enough
+    return nim;
   } else {
-    // Fallback: pad with secure suffix
     return nim + 'Pnl' + Math.random().toString(36).substring(2, 5);
   }
 };
 
-// New function to register user without affecting current session
-export const registerUserWithoutSessionChange = async (userData: {
+// Function to register user authentication only (no public.users entry)
+export const registerUserAuthOnly = async (userData: {
   email: string;
   password: string;
   nama: string;
   nim: string;
-  role: string;
-  level_user: number;
-  nama_wali?: string;
-  no_wa_wali?: string;
-  nama_dosen_pembimbing?: string;
-  no_wa_dosen_pembimbing?: string;
-  tingkat?: string;
-  kelas?: string;
 }): Promise<AppUser | null> => {
   try {
-    console.log('Starting registration for:', userData.nim);
+    console.log('Starting auth-only registration for:', userData.nim);
 
     // Store current session before any auth operations
     const currentSession = await supabase.auth.getSession();
@@ -222,111 +151,20 @@ export const registerUserWithoutSessionChange = async (userData: {
     const securePassword = generateSecurePassword(userData.password);
     console.log('Using password length:', securePassword.length);
 
-    // Check if user already exists in public.users table
-    const { data: existingUser, error: checkError } = await supabase
-      .from('users')
-      .select('id, nim')
-      .eq('nim', userData.nim)
-      .maybeSingle();
+    // Create user in Supabase Auth using admin client to avoid session change
+    const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      email: userData.email,
+      password: securePassword,
+      email_confirm: true
+    });
 
-    if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows returned
-      console.error('Error checking existing user:', checkError);
-      throw checkError;
+    if (authError) {
+      console.error('Auth admin create user error:', authError);
+      throw authError;
     }
 
-    let authUserId: string;
-
-    if (existingUser) {
-      console.log('User already exists in public.users:', existingUser);
-      
-      // Try to sign in to get the auth user ID
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email: userData.email,
-        password: securePassword,
-      });
-
-      if (signInError) {
-        console.log('Sign in failed, user might not exist in auth.users, creating...');
-        
-        // Create user in auth.users using admin client
-        const { data: signUpData, error: signUpError } = await supabase.auth.admin.createUser({
-          email: userData.email,
-          password: securePassword,
-          email_confirm: true
-        });
-
-        if (signUpError) {
-          console.error('Admin create user error:', signUpError);
-          throw signUpError;
-        } else {
-          authUserId = signUpData.user!.id;
-        }
-      } else {
-        authUserId = signInData.user!.id;
-      }
-
-      // Update the existing user record with the correct auth user ID
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ 
-          id: authUserId,
-          ...userData,
-          password: undefined, // Don't store password in public table
-          nim: userData.nim // Ensure NIM stays the same
-        })
-        .eq('nim', userData.nim);
-
-      if (updateError) {
-        console.error('Error updating existing user:', updateError);
-        throw updateError;
-      }
-
-      console.log('Updated existing user with auth ID:', authUserId);
-
-    } else {
-      console.log('Creating new user...');
-      
-      // Create user in Supabase Auth using admin client to avoid session change
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
-        email: userData.email,
-        password: securePassword,
-        email_confirm: true
-      });
-
-      if (authError) {
-        console.error('Auth admin create user error:', authError);
-        throw authError;
-      } else {
-        authUserId = authData.user!.id;
-      }
-
-      console.log('Auth user created with ID:', authUserId);
-
-      // Insert user data into our custom users table
-      const { error: dbError } = await supabase
-        .from('users')
-        .insert({
-          id: authUserId,
-          email: userData.email,
-          nama: userData.nama,
-          nim: userData.nim,
-          role: userData.role,
-          level_user: userData.level_user,
-          nama_wali: userData.nama_wali,
-          no_wa_wali: userData.no_wa_wali,
-          nama_dosen_pembimbing: userData.nama_dosen_pembimbing,
-          no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing,
-          tingkat: userData.tingkat,
-          kelas: userData.kelas,
-        });
-
-      if (dbError) {
-        console.error('Error inserting user data:', dbError);
-        throw dbError;
-      }
-
-      console.log('Created new user with ID:', authUserId);
-    }
+    const authUserId = authData.user!.id;
+    console.log('Auth user created with ID:', authUserId);
 
     // Restore the original session if it was an admin session
     if (currentSession.data.session && currentUser?.role === 'admin') {
@@ -342,19 +180,13 @@ export const registerUserWithoutSessionChange = async (userData: {
     const appUser: AppUser = {
       id: authUserId,
       email: userData.email,
-      nama: userData.nama,
-      nim: userData.nim,
-      role: userData.role,
-      level_user: userData.level_user,
-      nama_wali: userData.nama_wali,
-      no_wa_wali: userData.no_wa_wali,
-      nama_dosen_pembimbing: userData.nama_dosen_pembimbing,
-      no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing,
-      tingkat: userData.tingkat,
-      kelas: userData.kelas,
+      nama: undefined, // Will be filled when user completes profile
+      nim: undefined,
+      role: undefined,
+      level_user: undefined,
     };
 
-    console.log('Registration successful:', appUser);
+    console.log('Auth-only registration successful:', appUser);
     return appUser;
   } catch (error) {
     console.error('Registration error:', error);
@@ -374,8 +206,96 @@ export const registerUserWithoutSessionChange = async (userData: {
   }
 };
 
+// Function to save user profile data to public.users
+export const saveUserProfile = async (profileData: {
+  nama: string;
+  nim: string;
+  tingkat?: string;
+  kelas?: string;
+  nama_wali?: string;
+  no_wa_wali?: string;
+  nama_dosen_pembimbing?: string;
+  no_wa_dosen_pembimbing?: string;
+}): Promise<boolean> => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      throw new Error('No authenticated user found');
+    }
+
+    // Check if user profile already exists
+    const { data: existingProfile } = await supabase
+      .from('users')
+      .select('id')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    // Check if NIM is already used by another user
+    const { data: nimCheck } = await supabase
+      .from('users')
+      .select('id')
+      .eq('nim', profileData.nim)
+      .neq('id', user.id)
+      .maybeSingle();
+
+    if (nimCheck) {
+      throw new Error('NIM sudah digunakan oleh pengguna lain');
+    }
+
+    const userData = {
+      id: user.id,
+      email: user.email!,
+      nama: profileData.nama,
+      nim: profileData.nim,
+      role: 'mahasiswa',
+      level_user: 0,
+      tingkat: profileData.tingkat,
+      kelas: profileData.kelas,
+      nama_wali: profileData.nama_wali,
+      no_wa_wali: profileData.no_wa_wali,
+      nama_dosen_pembimbing: profileData.nama_dosen_pembimbing,
+      no_wa_dosen_pembimbing: profileData.no_wa_dosen_pembimbing,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    if (existingProfile) {
+      // Update existing profile
+      const { error } = await supabase
+        .from('users')
+        .update(userData)
+        .eq('id', user.id);
+
+      if (error) throw error;
+    } else {
+      // Insert new profile
+      const { error } = await supabase
+        .from('users')
+        .insert(userData);
+
+      if (error) throw error;
+    }
+
+    // Update localStorage with complete user data
+    const updatedUser: AppUser = {
+      id: user.id,
+      email: user.email!,
+      ...profileData,
+      role: 'mahasiswa',
+      level_user: 0,
+    };
+    localStorage.setItem('user', JSON.stringify(updatedUser));
+
+    return true;
+  } catch (error) {
+    console.error('Error saving user profile:', error);
+    throw error;
+  }
+};
+
 // Keep the original registerUser function for backward compatibility
-export const registerUser = registerUserWithoutSessionChange;
+export const registerUserWithoutSessionChange = registerUserAuthOnly;
+export const registerUser = registerUserAuthOnly;
 
 // Debug function to check admin status
 export const debugAdminStatus = async (): Promise<void> => {
@@ -415,31 +335,27 @@ export const checkAuth = async (): Promise<AppUser | null> => {
       return null;
     }
 
-    // Get user data from our custom table
+    // Try to get user data from our custom table
     const { data: userData, error: userError } = await supabase
       .from('users')
       .select('*')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
-    if (userError || !userData) {
-      localStorage.removeItem('user');
-      return null;
-    }
-
+    // Create AppUser object (userData might be null if profile not completed)
     const appUser: AppUser = {
       id: user.id,
-      email: userData.email,
-      nama: userData.nama,
-      nim: userData.nim,
-      role: userData.role,
-      level_user: userData.level_user,
-      nama_wali: userData.nama_wali,
-      no_wa_wali: userData.no_wa_wali,
-      nama_dosen_pembimbing: userData.nama_dosen_pembimbing,
-      no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing,
-      tingkat: userData.tingkat,
-      kelas: userData.kelas,
+      email: user.email!,
+      nama: userData?.nama || undefined,
+      nim: userData?.nim || undefined,
+      role: userData?.role || undefined,
+      level_user: userData?.level_user || undefined,
+      nama_wali: userData?.nama_wali || undefined,
+      no_wa_wali: userData?.no_wa_wali || undefined,
+      nama_dosen_pembimbing: userData?.nama_dosen_pembimbing || undefined,
+      no_wa_dosen_pembimbing: userData?.no_wa_dosen_pembimbing || undefined,
+      tingkat: userData?.tingkat || undefined,
+      kelas: userData?.kelas || undefined,
     };
 
     localStorage.setItem('user', JSON.stringify(appUser));

@@ -1,33 +1,51 @@
 import React, { useState, useEffect } from 'react';
-import { Save, User, Phone, UserCheck } from 'lucide-react';
-import { getCurrentUser } from '../lib/auth';
-import { supabase } from '../lib/supabase';
+import { Save, User, Phone, UserCheck, GraduationCap, Users } from 'lucide-react';
+import { getCurrentUser, saveUserProfile } from '../lib/auth';
 import { useNavigate } from 'react-router-dom';
 
 export default function LengkapiData() {
   const [formData, setFormData] = useState({
+    nama: '',
+    nim: '',
+    tingkat: '',
+    kelas: '',
     nama_wali: '',
     no_wa_wali: '',
     nama_dosen_pembimbing: '',
     no_wa_dosen_pembimbing: ''
   });
   const [loading, setLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const [isUpdate, setIsUpdate] = useState(false);
   const navigate = useNavigate();
   const user = getCurrentUser();
 
   useEffect(() => {
-    if (user) {
-      setFormData({
-        nama_wali: user.nama_wali || '',
-        no_wa_wali: user.no_wa_wali || '',
-        nama_dosen_pembimbing: user.nama_dosen_pembimbing || '',
-        no_wa_dosen_pembimbing: user.no_wa_dosen_pembimbing || ''
-      });
-    }
+    const loadUserProfile = async () => {
+      if (user) {
+        // Check if user already has profile data
+        if (user.nama && user.nim) {
+          setFormData({
+            nama: user.nama || '',
+            nim: user.nim || '',
+            tingkat: user.tingkat || '',
+            kelas: user.kelas || '',
+            nama_wali: user.nama_wali || '',
+            no_wa_wali: user.no_wa_wali || '',
+            nama_dosen_pembimbing: user.nama_dosen_pembimbing || '',
+            no_wa_dosen_pembimbing: user.no_wa_dosen_pembimbing || ''
+          });
+          setIsUpdate(true);
+        }
+      }
+      setInitialLoading(false);
+    };
+
+    loadUserProfile();
   }, [user]);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
@@ -36,6 +54,22 @@ export default function LengkapiData() {
   };
 
   const validateForm = () => {
+    if (!formData.nama.trim()) {
+      setMessage({ type: 'error', text: 'Nama harus diisi' });
+      return false;
+    }
+    if (!formData.nim.trim()) {
+      setMessage({ type: 'error', text: 'NIM harus diisi' });
+      return false;
+    }
+    if (!formData.tingkat.trim()) {
+      setMessage({ type: 'error', text: 'Tingkat harus diisi' });
+      return false;
+    }
+    if (!formData.kelas.trim()) {
+      setMessage({ type: 'error', text: 'Kelas harus diisi' });
+      return false;
+    }
     if (!formData.nama_wali.trim()) {
       setMessage({ type: 'error', text: 'Nama wali harus diisi' });
       return false;
@@ -75,41 +109,51 @@ export default function LengkapiData() {
     setMessage(null);
 
     try {
-      const { error } = await supabase
-        .from('users')
-        .update(formData)
-        .eq('id', user.id);
+      await saveUserProfile(formData);
 
-      if (error) throw error;
-
-      // Update localStorage
-      const updatedUser = { ...user, ...formData };
-      localStorage.setItem('user', JSON.stringify(updatedUser));
-
-      setMessage({ type: 'success', text: 'Data berhasil disimpan!' });
+      setMessage({ type: 'success', text: `Profil berhasil ${isUpdate ? 'diperbarui' : 'disimpan'}!` });
       
       // Redirect to main page after successful save
       setTimeout(() => {
         navigate('/clustering-pribadi');
       }, 2000);
     } catch (error) {
-      console.error('Error updating user data:', error);
-      setMessage({ type: 'error', text: 'Gagal menyimpan data' });
+      console.error('Error saving user profile:', error);
+      if (error instanceof Error) {
+        setMessage({ type: 'error', text: error.message });
+      } else {
+        setMessage({ type: 'error', text: 'Gagal menyimpan profil' });
+      }
     } finally {
       setLoading(false);
     }
   };
 
+  if (initialLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
   if (!user) {
     return <div>Loading...</div>;
   }
 
+  const tingkatOptions = ['TK1', 'TK2', 'TK3', 'TK4'];
+
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       <div className="text-center">
-        <h1 className="text-3xl font-bold text-gray-900">Lengkapi Data Diri</h1>
+        <h1 className="text-3xl font-bold text-gray-900">
+          {isUpdate ? 'Perbarui Data Diri' : 'Lengkapi Data Diri'}
+        </h1>
         <p className="mt-2 text-gray-600">
-          Silakan lengkapi data Anda untuk dapat menggunakan sistem dengan optimal
+          {isUpdate 
+            ? 'Perbarui informasi profil Anda' 
+            : 'Silakan lengkapi data Anda untuk dapat menggunakan sistem dengan optimal'
+          }
         </p>
       </div>
 
@@ -125,22 +169,22 @@ export default function LengkapiData() {
 
       {/* User Info */}
       <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Informasi Mahasiswa</h2>
+        <h2 className="text-lg font-semibold text-gray-900 mb-4">Informasi Akun</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nama</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
               type="text"
-              value={user.nama}
+              value={user.email}
               disabled
               className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">NIM</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
             <input
               type="text"
-              value={user.nim}
+              value="Mahasiswa"
               disabled
               className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
             />
@@ -150,12 +194,81 @@ export default function LengkapiData() {
 
       {/* Form */}
       <form onSubmit={handleSubmit} className="bg-white rounded-xl p-6 shadow-sm border border-gray-200 space-y-6">
-        <h2 className="text-lg font-semibold text-gray-900">Data Kontak</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Data Pribadi</h2>
         
-        {/* Wali Data */}
+        {/* Personal Data */}
         <div className="space-y-4">
           <h3 className="text-md font-medium text-gray-700 flex items-center">
             <User className="w-5 h-5 mr-2 text-blue-600" />
+            Informasi Mahasiswa
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Nama Lengkap *
+              </label>
+              <input
+                type="text"
+                name="nama"
+                value={formData.nama}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150"
+                placeholder="Masukkan nama lengkap"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                NIM *
+              </label>
+              <input
+                type="text"
+                name="nim"
+                value={formData.nim}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150"
+                placeholder="Masukkan NIM"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Tingkat *
+              </label>
+              <select
+                name="tingkat"
+                value={formData.tingkat}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150"
+                required
+              >
+                <option value="">Pilih Tingkat</option>
+                {tingkatOptions.map(tingkat => (
+                  <option key={tingkat} value={tingkat}>{tingkat}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Kelas *
+              </label>
+              <input
+                type="text"
+                name="kelas"
+                value={formData.kelas}
+                onChange={handleInputChange}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150"
+                placeholder="Masukkan kelas (contoh: A, B, C)"
+                required
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Wali Data */}
+        <div className="space-y-4">
+          <h3 className="text-md font-medium text-gray-700 flex items-center">
+            <Users className="w-5 h-5 mr-2 text-green-600" />
             Data Wali
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -196,7 +309,7 @@ export default function LengkapiData() {
         {/* Dosen Pembimbing Data */}
         <div className="space-y-4">
           <h3 className="text-md font-medium text-gray-700 flex items-center">
-            <UserCheck className="w-5 h-5 mr-2 text-green-600" />
+            <GraduationCap className="w-5 h-5 mr-2 text-purple-600" />
             Data Dosen Pembimbing
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -246,7 +359,7 @@ export default function LengkapiData() {
             ) : (
               <>
                 <Save className="w-5 h-5 mr-2" />
-                Simpan Data
+                {isUpdate ? 'Perbarui Data' : 'Simpan Data'}
               </>
             )}
           </button>
@@ -263,10 +376,12 @@ export default function LengkapiData() {
             <h3 className="text-sm font-medium text-blue-800">Informasi Penting</h3>
             <div className="mt-2 text-sm text-blue-700">
               <ul className="list-disc list-inside space-y-1">
+                <li>Semua data yang bertanda (*) wajib diisi</li>
                 <li>Data yang Anda masukkan akan digunakan untuk mengirim notifikasi hasil clustering</li>
                 <li>Pastikan nomor WhatsApp yang dimasukkan aktif dan dapat menerima pesan</li>
                 <li>Format nomor WhatsApp: gunakan kode negara atau awali dengan 08</li>
                 <li>Data ini dapat diubah kapan saja melalui halaman ini</li>
+                <li>NIM harus unik dan tidak boleh sama dengan mahasiswa lain</li>
               </ul>
             </div>
           </div>

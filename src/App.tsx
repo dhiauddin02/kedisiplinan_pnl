@@ -63,7 +63,7 @@ function App() {
           {/* Student Routes */}
           {user?.level_user === 0 && (
             <>
-              <Route index element={<Navigate to="/clustering-pribadi" replace />} />
+              <Route index element={<Navigate to={!user.nama || !user.nim ? "/lengkapi-data" : "/clustering-pribadi"} replace />} />
               <Route path="clustering-pribadi" element={<ClusteringPribadi />} />
               <Route path="lengkapi-data" element={<LengkapiData />} />
             </>
