@@ -49,6 +49,7 @@ function App() {
         <Route path="/login" element={<Login />} />
         {/* <Route path="/" element={user ? <Layout /> : <Navigate to="/login" replace />}> */}
         <Route path="/" element={user ? <Layout user={user} /> : <Navigate to="/login" replace />} >
+
           {/* Admin Routes */}
           {user?.level_user === 1 && (
             <>
