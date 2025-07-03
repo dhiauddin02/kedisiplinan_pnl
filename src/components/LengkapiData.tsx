@@ -7,8 +7,6 @@ export default function LengkapiData() {
   const [formData, setFormData] = useState({
     nama: '',
     nim: '',
-    tingkat: '',
-    kelas: '',
     nama_wali: '',
     no_wa_wali: '',
     nama_dosen_pembimbing: '',
@@ -29,8 +27,6 @@ export default function LengkapiData() {
           setFormData({
             nama: user.nama || '',
             nim: user.nim || '',
-            tingkat: user.tingkat || '',
-            kelas: user.kelas || '',
             nama_wali: user.nama_wali || '',
             no_wa_wali: user.no_wa_wali || '',
             nama_dosen_pembimbing: user.nama_dosen_pembimbing || '',
@@ -60,14 +56,6 @@ export default function LengkapiData() {
     }
     if (!formData.nim.trim()) {
       setMessage({ type: 'error', text: 'NIM harus diisi' });
-      return false;
-    }
-    if (!formData.tingkat.trim()) {
-      setMessage({ type: 'error', text: 'Tingkat harus diisi' });
-      return false;
-    }
-    if (!formData.kelas.trim()) {
-      setMessage({ type: 'error', text: 'Kelas harus diisi' });
       return false;
     }
     if (!formData.nama_wali.trim()) {
@@ -140,8 +128,6 @@ export default function LengkapiData() {
   if (!user) {
     return <div>Loading...</div>;
   }
-
-  const tingkatOptions = ['TK1', 'TK2', 'TK3', 'TK4'];
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -228,37 +214,6 @@ export default function LengkapiData() {
                 onChange={handleInputChange}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150"
                 placeholder="Masukkan NIM"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Tingkat *
-              </label>
-              <select
-                name="tingkat"
-                value={formData.tingkat}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150"
-                required
-              >
-                <option value="">Pilih Tingkat</option>
-                {tingkatOptions.map(tingkat => (
-                  <option key={tingkat} value={tingkat}>{tingkat}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Kelas *
-              </label>
-              <input
-                type="text"
-                name="kelas"
-                value={formData.kelas}
-                onChange={handleInputChange}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150"
-                placeholder="Masukkan kelas (contoh: A, B, C)"
                 required
               />
             </div>

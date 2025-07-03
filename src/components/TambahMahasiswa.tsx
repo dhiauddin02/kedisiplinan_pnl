@@ -15,8 +15,6 @@ interface StudentData {
 interface ExistingStudent extends StudentData {
   id: string;
   email: string;
-  tingkat?: string;
-  kelas?: string;
   created_at: string;
 }
 
@@ -524,8 +522,6 @@ export default function TambahMahasiswa() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No. WA Wali</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dosen Pembimbing</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No. WA Dosen</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tingkat</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kelas</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
               </tr>
             </thead>
@@ -539,8 +535,6 @@ export default function TambahMahasiswa() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.no_wa_wali || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nama_dosen_pembimbing || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.no_wa_dosen_pembimbing || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.tingkat || '-'}</td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.kelas || '-'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     <div className="flex space-x-2">
                       <button

@@ -14,10 +14,8 @@ export interface User {
   no_wa_wali?: string;
   nama_dosen_pembimbing?: string;
   no_wa_dosen_pembimbing?: string;
-  level_user: number; // 1 = admin, 2 = student
+  level_user: number; // 1 = admin, 0 = student
   role: string;
-  tingkat?: string;
-  kelas?: string;
 }
 
 export interface Periode {

@@ -12,8 +12,6 @@ export interface AppUser {
   no_wa_wali?: string;
   nama_dosen_pembimbing?: string;
   no_wa_dosen_pembimbing?: string;
-  tingkat?: string;
-  kelas?: string;
 }
 
 // Store admin session for restoration
@@ -73,8 +71,6 @@ export const login = async (nim: string, password: string): Promise<AppUser | nu
       no_wa_wali: userData.no_wa_wali || undefined,
       nama_dosen_pembimbing: userData.nama_dosen_pembimbing || undefined,
       no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing || undefined,
-      tingkat: userData.tingkat || undefined,
-      kelas: userData.kelas || undefined,
     };
 
     // Store admin session and user if this is an admin login
@@ -222,8 +218,6 @@ export const registerUserAuthOnly = async (userData: {
 export const saveUserProfile = async (profileData: {
   nama: string;
   nim: string;
-  tingkat?: string;
-  kelas?: string;
   nama_wali?: string;
   no_wa_wali?: string;
   nama_dosen_pembimbing?: string;
@@ -261,8 +255,6 @@ export const saveUserProfile = async (profileData: {
       nim: profileData.nim,
       role: 'mahasiswa',
       level_user: 0,
-      tingkat: profileData.tingkat,
-      kelas: profileData.kelas,
       nama_wali: profileData.nama_wali,
       no_wa_wali: profileData.no_wa_wali,
       nama_dosen_pembimbing: profileData.nama_dosen_pembimbing,
@@ -366,8 +358,6 @@ export const checkAuth = async (): Promise<AppUser | null> => {
       no_wa_wali: userData?.no_wa_wali || undefined,
       nama_dosen_pembimbing: userData?.nama_dosen_pembimbing || undefined,
       no_wa_dosen_pembimbing: userData?.no_wa_dosen_pembimbing || undefined,
-      tingkat: userData?.tingkat || undefined,
-      kelas: userData?.kelas || undefined,
     };
 
     localStorage.setItem('user', JSON.stringify(appUser));

@@ -98,8 +98,6 @@ export default function Login() {
         no_wa_wali: userData.no_wa_wali || undefined,
         nama_dosen_pembimbing: userData.nama_dosen_pembimbing || undefined,
         no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing || undefined,
-        tingkat: userData.tingkat || undefined,
-        kelas: userData.kelas || undefined,
       };
 
       localStorage.setItem('user', JSON.stringify(appUser));
