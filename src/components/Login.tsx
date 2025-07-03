@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, User, Lock, LogIn, Mail } from 'lucide-react';
-import { login, checkAuth } from '../lib/auth';
+import { Eye, EyeOff, User, Lock, LogIn, UserCheck } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+import { checkAuth } from '../lib/auth';
 
 export default function Login() {
-  const [email, setEmail] = useState('');
+  const [nim, setNim] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -38,25 +39,82 @@ export default function Login() {
     setError('');
 
     try {
-      console.log('Attempting login with email:', email);
-      const user = await login(email, password);
+      console.log('Attempting login with NIM:', nim);
       
-      if (user) {
-        console.log('Login successful, user:', user);
-        // Navigate based on user type
-        if (user.level_user === 1) {
-          navigate('/dashboard');
+      // First, find the user by NIM to get their email
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('nim', nim.trim())
+        .maybeSingle();
+
+      if (userError) {
+        console.error('Error finding user:', userError);
+        setError('Terjadi kesalahan saat mencari data pengguna');
+        return;
+      }
+
+      if (!userData) {
+        console.log('User not found with NIM:', nim);
+        setError('NIM tidak ditemukan');
+        return;
+      }
+
+      console.log('User found:', userData);
+
+      // Try to sign in with the user's email and provided password
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: userData.email,
+        password: password.trim(),
+      });
+
+      if (authError) {
+        console.error('Authentication failed:', authError);
+        if (authError.message.includes('Invalid login credentials')) {
+          setError('NIM atau password salah');
         } else {
-          // Check if student needs to complete profile
-          if (!user.nama || !user.nim) {
-            navigate('/lengkapi-data');
-          } else {
-            navigate('/clustering-pribadi');
-          }
+          setError('Terjadi kesalahan saat login');
         }
+        return;
+      }
+
+      if (!authData.user) {
+        console.error('No user returned from auth');
+        setError('Login gagal');
+        return;
+      }
+
+      console.log('Login successful:', authData.user);
+
+      // Store user data in localStorage for easy access
+      const appUser = {
+        id: authData.user.id,
+        email: authData.user.email!,
+        nama: userData.nama || undefined,
+        nim: userData.nim || undefined,
+        role: userData.role || undefined,
+        level_user: userData.level_user || undefined,
+        nama_wali: userData.nama_wali || undefined,
+        no_wa_wali: userData.no_wa_wali || undefined,
+        nama_dosen_pembimbing: userData.nama_dosen_pembimbing || undefined,
+        no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing || undefined,
+        tingkat: userData.tingkat || undefined,
+        kelas: userData.kelas || undefined,
+      };
+
+      localStorage.setItem('user', JSON.stringify(appUser));
+      console.log('User data stored in localStorage:', appUser);
+
+      // Navigate based on user type
+      if (userData.level_user === 1) {
+        navigate('/dashboard');
       } else {
-        console.log('Login failed - no user returned');
-        setError('Email atau password salah');
+        // Check if student needs to complete profile
+        if (!userData.nama || !userData.nim) {
+          navigate('/lengkapi-data');
+        } else {
+          navigate('/clustering-pribadi');
+        }
       }
     } catch (err) {
       console.error('Login error:', err);
@@ -80,16 +138,16 @@ export default function Login() {
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Email
+              NIM / Username
             </label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <UserCheck className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                type="text"
+                value={nim}
+                onChange={(e) => setNim(e.target.value)}
                 className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-150"
-                placeholder="Masukkan email"
+                placeholder="Masukkan NIM Anda"
                 required
               />
             </div>
@@ -141,16 +199,30 @@ export default function Login() {
           </button>
         </form>
 
-        <div className="mt-8 text-center">
-          <p className="text-sm text-gray-600">
-            Untuk akun admin default, gunakan:
-          </p>
-          <p className="text-xs text-gray-500 mt-1">
-            Email: admin@pnl.ac.id | Password: admin123
-          </p>
-          <p className="text-xs text-gray-500 mt-2">
-            Mahasiswa: Gunakan email yang diberikan admin dan NIM sebagai password
-          </p>
+        <div className="mt-8 space-y-4">
+          <div className="text-center">
+            <p className="text-sm text-gray-600 mb-3">
+              Informasi Login:
+            </p>
+          </div>
+          
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <h4 className="font-medium text-blue-900 mb-2">Untuk Mahasiswa:</h4>
+            <ul className="text-sm text-blue-800 space-y-1">
+              <li>• <strong>Username:</strong> NIM Anda</li>
+              <li>• <strong>Password:</strong> NIM Anda (default)</li>
+              <li>• Contoh: NIM 2023001, maka username dan password adalah 2023001</li>
+              <li>• Password dapat diubah setelah login pertama</li>
+            </ul>
+          </div>
+
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+            <h4 className="font-medium text-green-900 mb-2">Untuk Admin:</h4>
+            <ul className="text-sm text-green-800 space-y-1">
+              <li>• <strong>Username:</strong> admin</li>
+              <li>• <strong>Password:</strong> admin123</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>

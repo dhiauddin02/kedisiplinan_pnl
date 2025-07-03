@@ -382,6 +382,7 @@ export default function LengkapiData() {
                 <li>Format nomor WhatsApp: gunakan kode negara atau awali dengan 08</li>
                 <li>Data ini dapat diubah kapan saja melalui halaman ini</li>
                 <li>NIM harus unik dan tidak boleh sama dengan mahasiswa lain</li>
+                <li><strong>Login:</strong> Gunakan NIM sebagai username dan password (dapat diubah setelah login)</li>
               </ul>
             </div>
           </div>

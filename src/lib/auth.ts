@@ -20,13 +20,32 @@ export interface AppUser {
 let adminSession: Session | null = null;
 let adminUser: AppUser | null = null;
 
-export const login = async (email: string, password: string): Promise<AppUser | null> => {
+export const login = async (nim: string, password: string): Promise<AppUser | null> => {
   try {
-    console.log('Starting login process for email:', email);
+    console.log('Starting login process for NIM:', nim);
     
-    // Sign in with email and password using Supabase Auth
+    // First, find the user by NIM to get their email
+    const { data: userData, error: userError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('nim', nim.trim())
+      .maybeSingle();
+
+    if (userError) {
+      console.error('Error finding user:', userError);
+      return null;
+    }
+
+    if (!userData) {
+      console.log('User not found with NIM:', nim);
+      return null;
+    }
+
+    console.log('User found:', userData);
+
+    // Try to sign in with the user's email and provided password
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
+      email: userData.email,
       password: password.trim(),
     });
 
@@ -42,31 +61,24 @@ export const login = async (email: string, password: string): Promise<AppUser | 
 
     console.log('Authentication successful:', authData.user);
 
-    // Try to get user data from our custom users table
-    const { data: userData, error: userError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', authData.user.id)
-      .maybeSingle();
-
     // Create AppUser object
     const appUser: AppUser = {
       id: authData.user.id,
       email: authData.user.email!,
-      nama: userData?.nama || undefined,
-      nim: userData?.nim || undefined,
-      role: userData?.role || undefined,
-      level_user: userData?.level_user || undefined,
-      nama_wali: userData?.nama_wali || undefined,
-      no_wa_wali: userData?.no_wa_wali || undefined,
-      nama_dosen_pembimbing: userData?.nama_dosen_pembimbing || undefined,
-      no_wa_dosen_pembimbing: userData?.no_wa_dosen_pembimbing || undefined,
-      tingkat: userData?.tingkat || undefined,
-      kelas: userData?.kelas || undefined,
+      nama: userData.nama || undefined,
+      nim: userData.nim || undefined,
+      role: userData.role || undefined,
+      level_user: userData.level_user || undefined,
+      nama_wali: userData.nama_wali || undefined,
+      no_wa_wali: userData.no_wa_wali || undefined,
+      nama_dosen_pembimbing: userData.nama_dosen_pembimbing || undefined,
+      no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing || undefined,
+      tingkat: userData.tingkat || undefined,
+      kelas: userData.kelas || undefined,
     };
 
     // Store admin session and user if this is an admin login
-    if (userData?.role === 'admin' && authData.session) {
+    if (userData.role === 'admin' && authData.session) {
       adminSession = authData.session;
       adminUser = appUser;
       console.log('Admin session and user stored for restoration');

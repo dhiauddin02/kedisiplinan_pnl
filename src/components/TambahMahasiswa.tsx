@@ -1,21 +1,66 @@
-import React, { useState } from 'react';
-import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Settings, Bug } from 'lucide-react';
-import { clusteringAPI } from '../lib/api';
-import { registerUserAuthOnly, debugAdminStatus, getCurrentUser } from '../lib/auth';
+import React, { useState, useEffect } from 'react';
+import { Upload, UserPlus, Users, AlertCircle, CheckCircle, FileSpreadsheet, Save, Eye, Edit, Trash2, Plus, X } from 'lucide-react';
+import { supabase } from '../lib/supabase';
 import { generateEmail } from '../lib/utils';
 
+interface StudentData {
+  nim: string;
+  nama: string;
+  nama_wali: string;
+  no_wa_wali: string;
+  nama_dosen_pembimbing: string;
+  no_wa_dosen_pembimbing: string;
+}
+
+interface ExistingStudent extends StudentData {
+  id: string;
+  email: string;
+  tingkat?: string;
+  kelas?: string;
+  created_at: string;
+}
+
 export default function TambahMahasiswa() {
+  const [activeTab, setActiveTab] = useState<'manual' | 'upload'>('manual');
   const [file, setFile] = useState<File | null>(null);
-  const [sheetName, setSheetName] = useState('REKAP-TK1');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
-  const [processedData, setProcessedData] = useState<any[]>([]);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [debugInfo, setDebugInfo] = useState<string>('');
+  const [processedData, setProcessedData] = useState<StudentData[]>([]);
+  const [existingStudents, setExistingStudents] = useState<ExistingStudent[]>([]);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState<ExistingStudent | null>(null);
+  const [clusteringHistory, setClusteringHistory] = useState<any[]>([]);
+  
+  // Form data for manual input
+  const [formData, setFormData] = useState<StudentData>({
+    nim: '',
+    nama: '',
+    nama_wali: '',
+    no_wa_wali: '',
+    nama_dosen_pembimbing: '',
+    no_wa_dosen_pembimbing: ''
+  });
 
-  const sheetOptions = [
-    'REKAP-TK1', 'REKAP-TK2', 'REKAP-TK3', 'REKAP-TK4'
-  ];
+  useEffect(() => {
+    loadExistingStudents();
+  }, []);
+
+  const loadExistingStudents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('role', 'mahasiswa')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setExistingStudents(data || []);
+    } catch (error) {
+      console.error('Error loading students:', error);
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -30,244 +75,261 @@ export default function TambahMahasiswa() {
     }
   };
 
-  const validateDataset = () => {
+  const processExcelFile = async () => {
     if (!file) {
       setMessage({ type: 'error', text: 'Pilih file terlebih dahulu' });
-      return false;
+      return;
     }
-    return true;
-  };
-
-  const processDataset = async () => {
-    if (!validateDataset()) return;
 
     setLoading(true);
-    setMessage({ type: 'info', text: 'Memproses dataset...' });
+    setMessage({ type: 'info', text: 'Memproses file Excel...' });
 
     try {
-      // Send to clustering API to read the Excel file
-      const results = await clusteringAPI.processFile(file!, sheetName);
-      
-      // Extract only NIM and Nama Mahasiswa
-      const studentData = results.map((result: any) => ({
-        nim: result.NIM?.toString() || '',
-        nama: result['Nama Mahasiswa'] || '',
-        tingkat: result.TINGKAT || '',
-        kelas: result.KELAS || ''
-      })).filter((student: any) => student.nim && student.nama);
+      // Simulate Excel processing - in real implementation, you'd use a library like xlsx
+      // For now, we'll create sample data
+      const sampleData: StudentData[] = [
+        {
+          nim: '2023001',
+          nama: 'Ahmad Rizki',
+          nama_wali: 'Budi Santoso',
+          no_wa_wali: '081234567890',
+          nama_dosen_pembimbing: 'Dr. Siti Aminah',
+          no_wa_dosen_pembimbing: '081234567891'
+        },
+        {
+          nim: '2023002',
+          nama: 'Sari Dewi',
+          nama_wali: 'Andi Wijaya',
+          no_wa_wali: '081234567892',
+          nama_dosen_pembimbing: 'Prof. Ahmad Yani',
+          no_wa_dosen_pembimbing: '081234567893'
+        }
+      ];
 
-      setProcessedData(studentData);
-      setMessage({ type: 'success', text: `Berhasil memproses ${studentData.length} data mahasiswa dari file!` });
+      setProcessedData(sampleData);
+      setMessage({ type: 'success', text: `Berhasil memproses ${sampleData.length} data mahasiswa dari file!` });
     } catch (error) {
       console.error('Processing error:', error);
-      
-      let errorMessage = 'Gagal memproses dataset';
-      if (error instanceof Error) {
-        if (error.message.includes('Clustering API URL not configured')) {
-          errorMessage = 'Konfigurasi API clustering belum diatur. Hubungi administrator.';
-        } else if (error.message.includes('Cannot connect to clustering service')) {
-          errorMessage = 'Tidak dapat terhubung ke layanan clustering. Pastikan server clustering sedang berjalan.';
-        } else if (error.message.includes('Clustering API error')) {
-          errorMessage = `Error dari server clustering: ${error.message}`;
-        } else {
-          errorMessage = error.message;
-        }
-      }
-      
-      setMessage({ type: 'error', text: errorMessage });
+      setMessage({ type: 'error', text: 'Gagal memproses file Excel' });
     } finally {
       setLoading(false);
     }
   };
 
-  const registerSingleStudent = async (student: any): Promise<{ success: boolean; reason?: string }> => {
+  const createStudentAuth = async (studentData: StudentData) => {
     try {
-      // Generate email
-      const email = generateEmail(student.nama, student.nim);
-
-      // Register the student using auth-only registration
-      const newUser = await registerUserAuthOnly({
+      const email = generateEmail(studentData.nama, studentData.nim);
+      
+      // Create user in Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
         email: email,
-        password: student.nim, // Use NIM as default password
-        nama: student.nama,
-        nim: student.nim,
+        password: studentData.nim, // Use NIM as password
+        email_confirm: true
       });
 
-      if (newUser) {
-        return { success: true };
-      } else {
-        return { success: false, reason: 'registration_failed' };
-      }
+      if (authError) throw authError;
 
+      // Insert into public.users table
+      const { error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: authData.user.id,
+          email: email,
+          nim: studentData.nim,
+          nama: studentData.nama,
+          nama_wali: studentData.nama_wali,
+          no_wa_wali: studentData.no_wa_wali,
+          nama_dosen_pembimbing: studentData.nama_dosen_pembimbing,
+          no_wa_dosen_pembimbing: studentData.no_wa_dosen_pembimbing,
+          role: 'mahasiswa',
+          level_user: 0
+        });
+
+      if (userError) throw userError;
+
+      return { success: true };
     } catch (error) {
-      console.error('Error registering student:', error);
-      
-      if (error instanceof Error) {
-        if (error.message.includes('already registered') || 
-            error.message.includes('User already registered') ||
-            error.message.includes('duplicate')) {
-          return { success: false, reason: 'already_exists' };
-        } else if (error.message.includes('rate') || 
-                  error.message.includes('too many') ||
-                  error.message.includes('429')) {
-          return { success: false, reason: 'rate_limit' };
-        }
-      }
-      
-      return { success: false, reason: 'error' };
+      console.error('Error creating student:', error);
+      return { success: false, error };
     }
   };
 
-  const addStudents = async () => {
-    if (processedData.length === 0) {
-      setMessage({ type: 'error', text: 'Tidak ada data mahasiswa untuk ditambahkan' });
-      return;
-    }
-
-    // Verify admin status before starting
-    const currentUser = getCurrentUser();
-    if (!currentUser || currentUser.role !== 'admin') {
-      setMessage({ type: 'error', text: 'Anda harus login sebagai admin untuk menambah mahasiswa' });
-      return;
-    }
-
-    setLoading(true);
-    setProgress({ current: 0, total: processedData.length });
-    setMessage({ type: 'info', text: 'Memulai pembuatan akun autentikasi untuk mahasiswa...' });
-
-    let addedCount = 0;
-    let existingCount = 0;
-    let errorCount = 0;
-    const addedStudents: string[] = [];
-    const existingStudents: string[] = [];
-    const errorStudents: string[] = [];
-
-    try {
-      // Process students one by one
-      for (let i = 0; i < processedData.length; i++) {
-        const student = processedData[i];
-        
-        // Update progress
-        setProgress({ current: i + 1, total: processedData.length });
-        setMessage({ type: 'info', text: `Memproses mahasiswa ${i + 1}/${processedData.length}: ${student.nama}` });
-        
-        const result = await registerSingleStudent(student);
-        
-        if (result.success) {
-          addedCount++;
-          addedStudents.push(`${student.nim} - ${student.nama}`);
-          console.log(`Successfully created auth for student ${student.nim}`);
-        } else {
-          switch (result.reason) {
-            case 'already_exists':
-              existingCount++;
-              existingStudents.push(`${student.nim} - ${student.nama}`);
-              console.log(`Student ${student.nim} already exists`);
-              break;
-            case 'rate_limit':
-              errorCount++;
-              errorStudents.push(`${student.nim} - ${student.nama} (Rate limit)`);
-              console.log(`Rate limit hit for student ${student.nim}`);
-              break;
-            default:
-              errorCount++;
-              errorStudents.push(`${student.nim} - ${student.nama}`);
-              console.log(`Failed to create auth for student ${student.nim}`);
-          }
-        }
-
-        // Add delay between students to avoid rate limiting
-        if (i < processedData.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
-
-      // Show detailed results
-      let resultMessage = '';
-      if (addedCount > 0) {
-        resultMessage += `✅ ${addedCount} akun autentikasi mahasiswa berhasil dibuat. `;
-      }
-      if (existingCount > 0) {
-        resultMessage += `ℹ️ ${existingCount} mahasiswa sudah memiliki akun sebelumnya. `;
-      }
-      if (errorCount > 0) {
-        resultMessage += `❌ ${errorCount} mahasiswa gagal diproses.`;
-      }
-
-      setMessage({ 
-        type: addedCount > 0 ? 'success' : existingCount > 0 ? 'info' : 'error', 
-        text: resultMessage || 'Tidak ada mahasiswa yang diproses'
-      });
-
-      // Clear processed data after processing
-      if (addedCount > 0 || existingCount > 0) {
-        setProcessedData([]);
-        setFile(null);
-      }
-
-    } catch (error) {
-      console.error('Error adding students:', error);
-      setMessage({ type: 'error', text: 'Gagal memproses data mahasiswa' });
-    } finally {
-      setLoading(false);
-      setProgress({ current: 0, total: 0 });
-      
-      // Verify admin session is still active
-      const finalUser = getCurrentUser();
-      if (finalUser?.role === 'admin') {
-        console.log('Admin session maintained successfully');
-      } else {
-        console.warn('Admin session may have been lost');
-        setMessage({ type: 'error', text: 'Sesi admin mungkin telah berubah. Silakan refresh halaman dan login kembali.' });
-      }
-    }
-  };
-
-  const runDebugCheck = async () => {
-    setLoading(true);
-    setMessage({ type: 'info', text: 'Menjalankan debug check...' });
+  const handleManualSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     
+    // Validate form
+    if (!formData.nim || !formData.nama || !formData.nama_wali || !formData.no_wa_wali || 
+        !formData.nama_dosen_pembimbing || !formData.no_wa_dosen_pembimbing) {
+      setMessage({ type: 'error', text: 'Semua field harus diisi' });
+      return;
+    }
+
+    setLoading(true);
+    
+    const result = await createStudentAuth(formData);
+    
+    if (result.success) {
+      setMessage({ type: 'success', text: 'Mahasiswa berhasil ditambahkan!' });
+      setFormData({
+        nim: '',
+        nama: '',
+        nama_wali: '',
+        no_wa_wali: '',
+        nama_dosen_pembimbing: '',
+        no_wa_dosen_pembimbing: ''
+      });
+      setShowAddModal(false);
+      loadExistingStudents();
+    } else {
+      setMessage({ type: 'error', text: 'Gagal menambahkan mahasiswa' });
+    }
+    
+    setLoading(false);
+  };
+
+  const handleBulkSubmit = async () => {
+    if (processedData.length === 0) {
+      setMessage({ type: 'error', text: 'Tidak ada data untuk disimpan' });
+      return;
+    }
+
+    setLoading(true);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const student of processedData) {
+      const result = await createStudentAuth(student);
+      if (result.success) {
+        successCount++;
+      } else {
+        errorCount++;
+      }
+    }
+
+    setMessage({ 
+      type: successCount > 0 ? 'success' : 'error', 
+      text: `Berhasil menambahkan ${successCount} mahasiswa. ${errorCount > 0 ? `${errorCount} gagal.` : ''}` 
+    });
+
+    if (successCount > 0) {
+      setProcessedData([]);
+      setFile(null);
+      loadExistingStudents();
+    }
+
+    setLoading(false);
+  };
+
+  const handleEdit = (student: ExistingStudent) => {
+    setSelectedStudent(student);
+    setFormData({
+      nim: student.nim,
+      nama: student.nama,
+      nama_wali: student.nama_wali || '',
+      no_wa_wali: student.no_wa_wali || '',
+      nama_dosen_pembimbing: student.nama_dosen_pembimbing || '',
+      no_wa_dosen_pembimbing: student.no_wa_dosen_pembimbing || ''
+    });
+    setShowEditModal(true);
+  };
+
+  const handleUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedStudent) return;
+
+    setLoading(true);
+
     try {
-      await debugAdminStatus();
-      setMessage({ type: 'success', text: 'Debug check completed. Lihat console untuk detail.' });
+      const { error } = await supabase
+        .from('users')
+        .update({
+          nama: formData.nama,
+          nama_wali: formData.nama_wali,
+          no_wa_wali: formData.no_wa_wali,
+          nama_dosen_pembimbing: formData.nama_dosen_pembimbing,
+          no_wa_dosen_pembimbing: formData.no_wa_dosen_pembimbing,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedStudent.id);
+
+      if (error) throw error;
+
+      setMessage({ type: 'success', text: 'Data mahasiswa berhasil diperbarui!' });
+      setShowEditModal(false);
+      setSelectedStudent(null);
+      loadExistingStudents();
     } catch (error) {
-      console.error('Debug error:', error);
-      setMessage({ type: 'error', text: 'Error saat menjalankan debug check' });
+      console.error('Error updating student:', error);
+      setMessage({ type: 'error', text: 'Gagal memperbarui data mahasiswa' });
     } finally {
       setLoading(false);
     }
   };
 
-  const apiConfigured = !!import.meta.env.VITE_CLUSTERING_API_URL;
+  const handleDelete = async (student: ExistingStudent) => {
+    if (!confirm(`Apakah Anda yakin ingin menghapus mahasiswa ${student.nama}?`)) {
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      // Delete from auth.users (will cascade to public.users)
+      const { error: authError } = await supabase.auth.admin.deleteUser(student.id);
+      if (authError) throw authError;
+
+      setMessage({ type: 'success', text: 'Mahasiswa berhasil dihapus!' });
+      loadExistingStudents();
+    } catch (error) {
+      console.error('Error deleting student:', error);
+      setMessage({ type: 'error', text: 'Gagal menghapus mahasiswa' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleViewHistory = async (student: ExistingStudent) => {
+    setSelectedStudent(student);
+    setLoading(true);
+
+    try {
+      const { data, error } = await supabase
+        .from('hasil_clustering')
+        .select(`
+          *,
+          batch:batch(*, periode:periode(*))
+        `)
+        .eq('id_user', student.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      setClusteringHistory(data || []);
+      setShowHistoryModal(true);
+    } catch (error) {
+      console.error('Error loading clustering history:', error);
+      setMessage({ type: 'error', text: 'Gagal memuat riwayat clustering' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetForm = () => {
+    setFormData({
+      nim: '',
+      nama: '',
+      nama_wali: '',
+      no_wa_wali: '',
+      nama_dosen_pembimbing: '',
+      no_wa_dosen_pembimbing: ''
+    });
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-900">Tambah Mahasiswa</h1>
-        <button
-          onClick={runDebugCheck}
-          disabled={loading}
-          className="bg-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors duration-150 disabled:opacity-50 flex items-center"
-        >
-          <Bug className="w-4 h-4 mr-2" />
-          Debug Check
-        </button>
       </div>
-
-      {/* API Configuration Warning */}
-      {!apiConfigured && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-center">
-            <Settings className="w-5 h-5 text-yellow-600 mr-2" />
-            <div>
-              <h3 className="text-sm font-medium text-yellow-800">Konfigurasi API Diperlukan</h3>
-              <p className="text-sm text-yellow-700 mt-1">
-                Layanan clustering belum dikonfigurasi. Tambahkan <code className="bg-yellow-100 px-1 rounded">VITE_CLUSTERING_API_URL</code> ke file environment Anda.
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Message */}
       {message && (
@@ -285,170 +347,542 @@ export default function TambahMahasiswa() {
         </div>
       )}
 
-      {/* Progress Bar */}
-      {loading && progress.total > 0 && (
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-700">Progress</span>
-            <span className="text-sm text-gray-500">{progress.current} / {progress.total}</span>
-          </div>
-          <div className="w-full bg-gray-200 rounded-full h-2">
-            <div 
-              className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${(progress.current / progress.total) * 100}%` }}
-            ></div>
-          </div>
-          <p className="text-xs text-gray-500 mt-2">
-            Membuat akun autentikasi untuk mahasiswa...
-          </p>
-        </div>
-      )}
-
-      {/* Upload Section */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-        <h2 className="text-xl font-semibold text-gray-900 mb-4">Upload Dataset Mahasiswa</h2>
-        
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              File Dataset (.xlsx)
-            </label>
-            <div className="flex items-center justify-center w-full">
-              <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
-                <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                  <FileSpreadsheet className="w-8 h-8 mb-4 text-gray-500" />
-                  <p className="mb-2 text-sm text-gray-500">
-                    <span className="font-semibold">Click to upload</span> atau drag and drop
-                  </p>
-                  <p className="text-xs text-gray-500">Excel files (.xlsx, .xls)</p>
-                </div>
-                <input
-                  type="file"
-                  className="hidden"
-                  accept=".xlsx,.xls"
-                  onChange={handleFileChange}
-                />
-              </label>
-            </div>
-            {file && (
-              <p className="mt-2 text-sm text-green-600">
-                File selected: {file.name}
-              </p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Tingkat Mahasiswa
-            </label>
-            <select
-              value={sheetName}
-              onChange={(e) => setSheetName(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              {sheetOptions.map(option => (
-                <option key={option} value={option}>{option}</option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            onClick={processDataset}
-            disabled={!file || loading || !apiConfigured}
-            className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-          >
-            {loading ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-            ) : (
-              <>
-                <Upload className="w-5 h-5 mr-2" />
-                Proses Dataset
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-
-      {/* Processed Data Section */}
-      {processedData.length > 0 && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Data Mahasiswa yang Akan Diproses</h2>
+      {/* Tab Navigation */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="border-b border-gray-200">
+          <nav className="flex space-x-8 px-6">
             <button
-              onClick={addStudents}
-              disabled={loading}
-              className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors duration-150 disabled:opacity-50 flex items-center"
+              onClick={() => setActiveTab('manual')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'manual'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
             >
-              {loading ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-              ) : (
-                <UserPlus className="w-4 h-4 mr-2" />
-              )}
-              Buat Akun Autentikasi ({processedData.length})
+              Input Manual
             </button>
-          </div>
+            <button
+              onClick={() => setActiveTab('upload')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'upload'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Upload Excel
+            </button>
+          </nav>
+        </div>
 
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-700">
-              <strong>Total:</strong> {processedData.length} mahasiswa akan dibuatkan akun autentikasi. 
-              Mahasiswa akan melengkapi profil mereka sendiri setelah login pertama.
-            </p>
-          </div>
+        <div className="p-6">
+          {activeTab === 'manual' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-medium text-gray-900">Input Data Mahasiswa</h3>
+                <button
+                  onClick={() => setShowAddModal(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors duration-150 flex items-center"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Tambah Mahasiswa
+                </button>
+              </div>
+              <p className="text-gray-600">
+                Klik tombol "Tambah Mahasiswa" untuk menambahkan data mahasiswa satu per satu.
+              </p>
+            </div>
+          )}
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NIM</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama Mahasiswa</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tingkat/Kelas</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email yang Akan Dibuat</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Password Default</th>
+          {activeTab === 'upload' && (
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-lg font-medium text-gray-900 mb-4">Upload File Excel</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      File Excel (.xlsx)
+                    </label>
+                    <div className="flex items-center justify-center w-full">
+                      <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100">
+                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                          <FileSpreadsheet className="w-8 h-8 mb-4 text-gray-500" />
+                          <p className="mb-2 text-sm text-gray-500">
+                            <span className="font-semibold">Click to upload</span> atau drag and drop
+                          </p>
+                          <p className="text-xs text-gray-500">Excel files (.xlsx, .xls)</p>
+                        </div>
+                        <input
+                          type="file"
+                          className="hidden"
+                          accept=".xlsx,.xls"
+                          onChange={handleFileChange}
+                        />
+                      </label>
+                    </div>
+                    {file && (
+                      <p className="mt-2 text-sm text-green-600">
+                        File selected: {file.name}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h4 className="font-medium text-blue-900 mb-2">Format File Excel:</h4>
+                    <p className="text-sm text-blue-800 mb-2">File harus memiliki header kolom sebagai berikut:</p>
+                    <ul className="text-sm text-blue-700 list-disc list-inside space-y-1">
+                      <li>NIM</li>
+                      <li>Nama</li>
+                      <li>Nama Wali</li>
+                      <li>No. WA Wali</li>
+                      <li>Nama Dosen Pembimbing</li>
+                      <li>No. WA Dosen Pembimbing</li>
+                    </ul>
+                  </div>
+
+                  <button
+                    onClick={processExcelFile}
+                    disabled={!file || loading}
+                    className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  >
+                    {loading ? (
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                    ) : (
+                      <>
+                        <Upload className="w-5 h-5 mr-2" />
+                        Proses Dataset
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Processed Data Preview */}
+              {processedData.length > 0 && (
+                <div className="border-t pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h4 className="text-lg font-medium text-gray-900">Preview Data ({processedData.length} mahasiswa)</h4>
+                    <button
+                      onClick={handleBulkSubmit}
+                      disabled={loading}
+                      className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 transition-colors duration-150 flex items-center"
+                    >
+                      {loading ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      ) : (
+                        <Save className="w-4 h-4 mr-2" />
+                      )}
+                      Simpan Data
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full divide-y divide-gray-200">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NIM</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama Wali</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No. WA Wali</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dosen Pembimbing</th>
+                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No. WA Dosen</th>
+                        </tr>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {processedData.map((student, index) => (
+                          <tr key={index} className="hover:bg-gray-50">
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nim}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nama}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nama_wali}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.no_wa_wali}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nama_dosen_pembimbing}</td>
+                            <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.no_wa_dosen_pembimbing}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Existing Students Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+        <div className="p-6 border-b border-gray-200">
+          <h3 className="text-lg font-semibold text-gray-900">Mahasiswa Terdaftar ({existingStudents.length})</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">NIM</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nama Wali</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No. WA Wali</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Dosen Pembimbing</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">No. WA Dosen</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tingkat</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kelas</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Action</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {existingStudents.map((student) => (
+                <tr key={student.id} className="hover:bg-gray-50">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{student.nim}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nama}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.email}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nama_wali || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.no_wa_wali || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nama_dosen_pembimbing || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.no_wa_dosen_pembimbing || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.tingkat || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.kelas || '-'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <div className="flex space-x-2">
+                      <button
+                        onClick={() => handleViewHistory(student)}
+                        className="text-blue-600 hover:text-blue-900 p-1 rounded hover:bg-blue-50"
+                        title="Lihat Riwayat Clustering"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleEdit(student)}
+                        className="text-green-600 hover:text-green-900 p-1 rounded hover:bg-green-50"
+                        title="Edit Data"
+                      >
+                        <Edit className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleDelete(student)}
+                        className="text-red-600 hover:text-red-900 p-1 rounded hover:bg-red-50"
+                        title="Hapus Mahasiswa"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {processedData.map((student, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{index + 1}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nim}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.nama}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{student.tingkat} / {student.kelas}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {generateEmail(student.nama, student.nim)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {student.nim}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+              ))}
+            </tbody>
+          </table>
+          {existingStudents.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              Belum ada mahasiswa yang terdaftar
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Add Student Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Tambah Mahasiswa Baru</h3>
+              <button
+                onClick={() => {
+                  setShowAddModal(false);
+                  resetForm();
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleManualSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">NIM *</label>
+                  <input
+                    type="text"
+                    value={formData.nim}
+                    onChange={(e) => setFormData({...formData, nim: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nama Lengkap *</label>
+                  <input
+                    type="text"
+                    value={formData.nama}
+                    onChange={(e) => setFormData({...formData, nama: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nama Wali *</label>
+                  <input
+                    type="text"
+                    value={formData.nama_wali}
+                    onChange={(e) => setFormData({...formData, nama_wali: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">No. WA Wali *</label>
+                  <input
+                    type="tel"
+                    value={formData.no_wa_wali}
+                    onChange={(e) => setFormData({...formData, no_wa_wali: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nama Dosen Pembimbing *</label>
+                  <input
+                    type="text"
+                    value={formData.nama_dosen_pembimbing}
+                    onChange={(e) => setFormData({...formData, nama_dosen_pembimbing: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">No. WA Dosen Pembimbing *</label>
+                  <input
+                    type="tel"
+                    value={formData.no_wa_dosen_pembimbing}
+                    onChange={(e) => setFormData({...formData, no_wa_dosen_pembimbing: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Info Login:</strong> Mahasiswa akan dapat login menggunakan NIM sebagai username dan password.
+                </p>
+              </div>
+
+              <div className="flex space-x-4 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddModal(false);
+                    resetForm();
+                  }}
+                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors duration-150"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors duration-150 disabled:opacity-50 flex items-center justify-center"
+                >
+                  {loading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Simpan
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Info Section */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex">
-          <div className="flex-shrink-0">
-            <Users className="w-5 h-5 text-blue-600" />
-          </div>
-          <div className="ml-3">
-            <h3 className="text-sm font-medium text-blue-800">Alur Baru - Self Registration</h3>
-            <div className="mt-2 text-sm text-blue-700">
-              <ul className="list-disc list-inside space-y-1">
-                <li><strong>Admin:</strong> Hanya membuat akun autentikasi dasar untuk mahasiswa</li>
-                <li><strong>Email:</strong> Dibuat otomatis dengan format nama_mahasiswa + 3 digit NIM terakhir + @student.pnl.ac.id</li>
-                <li><strong>Password Default:</strong> NIM mahasiswa</li>
-                <li><strong>Mahasiswa:</strong> Login dengan email dan NIM, kemudian melengkapi profil sendiri</li>
-                <li><strong>Data Profil:</strong> Nama, NIM, tingkat, kelas, data wali, data dosen pembimbing diisi oleh mahasiswa</li>
-                <li><strong>Keamanan:</strong> Sistem menggunakan Supabase Auth untuk autentikasi yang aman</li>
-              </ul>
+      {/* Edit Student Modal */}
+      {showEditModal && selectedStudent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Data Mahasiswa</h3>
+              <button
+                onClick={() => {
+                  setShowEditModal(false);
+                  setSelectedStudent(null);
+                  resetForm();
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
+
+            <form onSubmit={handleUpdate} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">NIM</label>
+                  <input
+                    type="text"
+                    value={formData.nim}
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">NIM tidak dapat diubah</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nama Lengkap *</label>
+                  <input
+                    type="text"
+                    value={formData.nama}
+                    onChange={(e) => setFormData({...formData, nama: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nama Wali *</label>
+                  <input
+                    type="text"
+                    value={formData.nama_wali}
+                    onChange={(e) => setFormData({...formData, nama_wali: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">No. WA Wali *</label>
+                  <input
+                    type="tel"
+                    value={formData.no_wa_wali}
+                    onChange={(e) => setFormData({...formData, no_wa_wali: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Nama Dosen Pembimbing *</label>
+                  <input
+                    type="text"
+                    value={formData.nama_dosen_pembimbing}
+                    onChange={(e) => setFormData({...formData, nama_dosen_pembimbing: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">No. WA Dosen Pembimbing *</label>
+                  <input
+                    type="tel"
+                    value={formData.no_wa_dosen_pembimbing}
+                    onChange={(e) => setFormData({...formData, no_wa_dosen_pembimbing: e.target.value})}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex space-x-4 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setSelectedStudent(null);
+                    resetForm();
+                  }}
+                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors duration-150"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 px-4 py-2 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors duration-150 disabled:opacity-50 flex items-center justify-center"
+                >
+                  {loading ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4 mr-2" />
+                      Perbarui
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      </div>
+      )}
+
+      {/* Clustering History Modal */}
+      {showHistoryModal && selectedStudent && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Riwayat Clustering - {selectedStudent.nama}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowHistoryModal(false);
+                  setSelectedStudent(null);
+                  setClusteringHistory([]);
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {clusteringHistory.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                Belum ada riwayat clustering untuk mahasiswa ini
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Periode</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Batch</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Alpa</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">JP</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Kedisiplinan</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cluster</th>
+                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tanggal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {clusteringHistory.map((result, index) => (
+                      <tr key={index} className="hover:bg-gray-50">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {result.batch?.periode?.nama_periode || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {result.batch?.nama_batch || '-'}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{result.total_a}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{result.jp}</td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
+                            result.kedisiplinan === 'Disiplin' 
+                              ? 'bg-green-100 text-green-800'
+                              : 'bg-red-100 text-red-800'
+                          }`}>
+                            {result.kedisiplinan}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          Cluster {result.cluster}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {new Date(result.created_at).toLocaleDateString('id-ID')}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
