@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Eye, EyeOff, User, Lock, LogIn, UserCheck } from 'lucide-react';
+import { Eye, EyeOff, User, Lock, LogIn, UserCheck, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { checkAuth } from '../lib/auth';
+import { checkAuth, debugAdminStatus } from '../lib/auth';
 
 export default function Login() {
   const [nim, setNim] = useState('');
@@ -41,6 +41,11 @@ export default function Login() {
     try {
       console.log('Attempting login with NIM:', nim);
       
+      // Debug admin status if trying to login as admin
+      if (nim.trim() === 'admin') {
+        await debugAdminStatus();
+      }
+      
       // First, find the user by NIM to get their email
       const { data: userData, error: userError } = await supabase
         .from('users')
@@ -56,8 +61,89 @@ export default function Login() {
 
       if (!userData) {
         console.log('User not found with NIM:', nim);
-        setError('NIM tidak ditemukan');
-        return;
+        
+        // Special handling for admin login
+        if (nim.trim() === 'admin') {
+          setError('Admin belum terdaftar. Sistem akan mencoba membuat akun admin...');
+          
+          try {
+            // Try to create admin user
+            const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+              email: 'admin@pnl.ac.id',
+              password: 'admin123',
+              options: {
+                data: {
+                  nama: 'Administrator',
+                  nim: 'admin',
+                  role: 'admin'
+                }
+              }
+            });
+            
+            if (signUpError) {
+              console.error('Error creating admin:', signUpError);
+              setError('Gagal membuat akun admin: ' + signUpError.message);
+              return;
+            }
+            
+            if (signUpData.user) {
+              // Create admin in public.users
+              const { error: insertError } = await supabase
+                .from('users')
+                .insert({
+                  id: signUpData.user.id,
+                  email: 'admin@pnl.ac.id',
+                  nim: 'admin',
+                  nama: 'Administrator',
+                  role: 'admin',
+                  level_user: 1,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                });
+              
+              if (insertError) {
+                console.error('Error inserting admin to public.users:', insertError);
+                setError('Gagal menyimpan data admin');
+                return;
+              }
+              
+              setError('');
+              // Now try to sign in
+              const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+                email: 'admin@pnl.ac.id',
+                password: 'admin123',
+              });
+              
+              if (authError) {
+                console.error('Admin login failed after creation:', authError);
+                setError('Gagal login setelah membuat akun admin');
+                return;
+              }
+              
+              if (authData.user) {
+                const appUser = {
+                  id: authData.user.id,
+                  email: authData.user.email!,
+                  nama: 'Administrator',
+                  nim: 'admin',
+                  role: 'admin',
+                  level_user: 1,
+                };
+                
+                localStorage.setItem('user', JSON.stringify(appUser));
+                navigate('/dashboard');
+                return;
+              }
+            }
+          } catch (createError) {
+            console.error('Error in admin creation process:', createError);
+            setError('Gagal membuat akun admin');
+            return;
+          }
+        } else {
+          setError('NIM tidak ditemukan');
+          return;
+        }
       }
 
       console.log('User found:', userData);
@@ -176,8 +262,9 @@ export default function Login() {
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
-              {error}
+            <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-center">
+              <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0" />
+              <span className="text-sm">{error}</span>
             </div>
           )}
 

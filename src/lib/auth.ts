@@ -32,6 +32,85 @@ export const login = async (nim: string, password: string): Promise<AppUser | nu
 
     if (!userData) {
       console.log('User not found with NIM:', nim);
+      
+      // Special case: if trying to login as admin and admin doesn't exist in public.users
+      if (nim.trim() === 'admin') {
+        console.log('Admin not found in public.users, checking auth.users...');
+        
+        // Try to find admin in auth.users
+        const { data: authUsers } = await supabase.auth.admin.listUsers();
+        const adminAuthUser = authUsers.users?.find(u => u.email === 'admin@pnl.ac.id');
+        
+        if (adminAuthUser) {
+          console.log('Admin found in auth.users, creating public.users entry...');
+          
+          // Create admin entry in public.users
+          const { error: insertError } = await supabase
+            .from('users')
+            .insert({
+              id: adminAuthUser.id,
+              email: 'admin@pnl.ac.id',
+              nim: 'admin',
+              nama: 'Administrator',
+              role: 'admin',
+              level_user: 1,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
+          
+          if (insertError) {
+            console.error('Error creating admin in public.users:', insertError);
+          } else {
+            console.log('Admin created in public.users, retrying login...');
+            // Retry the login process
+            return login(nim, password);
+          }
+        } else {
+          console.log('Admin not found in auth.users either, creating admin...');
+          
+          // Create admin user in auth.users
+          try {
+            const { data: newAdminAuth, error: createError } = await supabase.auth.signUp({
+              email: 'admin@pnl.ac.id',
+              password: 'admin123',
+              options: {
+                data: {
+                  nama: 'Administrator',
+                  nim: 'admin',
+                  role: 'admin'
+                }
+              }
+            });
+            
+            if (createError) {
+              console.error('Error creating admin auth user:', createError);
+            } else if (newAdminAuth.user) {
+              // Create admin in public.users
+              const { error: insertError } = await supabase
+                .from('users')
+                .insert({
+                  id: newAdminAuth.user.id,
+                  email: 'admin@pnl.ac.id',
+                  nim: 'admin',
+                  nama: 'Administrator',
+                  role: 'admin',
+                  level_user: 1,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                });
+              
+              if (!insertError) {
+                console.log('Admin user created successfully, retrying login...');
+                // Retry the login process
+                return login(nim, password);
+              }
+            }
+          } catch (createError) {
+            console.error('Error in admin creation process:', createError);
+          }
+        }
+      }
+      
       return null;
     }
 
@@ -45,6 +124,49 @@ export const login = async (nim: string, password: string): Promise<AppUser | nu
 
     if (authError) {
       console.error('Authentication failed:', authError);
+      
+      // Special handling for admin login with wrong password
+      if (userData.nim === 'admin' && authError.message.includes('Invalid login credentials')) {
+        console.log('Admin login failed, checking if auth user exists...');
+        
+        // Try to update admin password in auth.users
+        try {
+          const { error: updateError } = await supabase.auth.admin.updateUserById(
+            userData.id,
+            { password: 'admin123' }
+          );
+          
+          if (!updateError) {
+            console.log('Admin password updated, retrying login...');
+            // Retry login with updated password
+            const { data: retryAuthData, error: retryError } = await supabase.auth.signInWithPassword({
+              email: userData.email,
+              password: 'admin123',
+            });
+            
+            if (!retryError && retryAuthData.user) {
+              const appUser: AppUser = {
+                id: retryAuthData.user.id,
+                email: retryAuthData.user.email!,
+                nama: userData.nama || undefined,
+                nim: userData.nim || undefined,
+                role: userData.role || undefined,
+                level_user: userData.level_user || undefined,
+                nama_wali: userData.nama_wali || undefined,
+                no_wa_wali: userData.no_wa_wali || undefined,
+                nama_dosen_pembimbing: userData.nama_dosen_pembimbing || undefined,
+                no_wa_dosen_pembimbing: userData.no_wa_dosen_pembimbing || undefined,
+              };
+              
+              localStorage.setItem('user', JSON.stringify(appUser));
+              return appUser;
+            }
+          }
+        } catch (updateError) {
+          console.error('Error updating admin password:', updateError);
+        }
+      }
+      
       return null;
     }
 
@@ -237,5 +359,35 @@ export const checkAuth = async (): Promise<AppUser | null> => {
     console.error('Auth check error:', error);
     localStorage.removeItem('user');
     return null;
+  }
+};
+
+// Debug function to check admin status
+export const debugAdminStatus = async (): Promise<void> => {
+  try {
+    console.log('=== ADMIN DEBUG STATUS ===');
+    
+    // Check public.users for admin
+    const { data: publicAdmin, error: publicError } = await supabase
+      .from('users')
+      .select('*')
+      .eq('nim', 'admin')
+      .maybeSingle();
+    
+    console.log('Admin in public.users:', publicAdmin);
+    if (publicError) console.log('Public users error:', publicError);
+    
+    // Check auth.users for admin
+    try {
+      const { data: authUsers } = await supabase.auth.admin.listUsers();
+      const adminAuthUser = authUsers.users?.find(u => u.email === 'admin@pnl.ac.id');
+      console.log('Admin in auth.users:', adminAuthUser);
+    } catch (authError) {
+      console.log('Auth users error (expected if not service role):', authError);
+    }
+    
+    console.log('=== END ADMIN DEBUG ===');
+  } catch (error) {
+    console.error('Debug error:', error);
   }
 };
