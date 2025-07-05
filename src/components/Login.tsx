@@ -56,7 +56,7 @@ export default function Login() {
 
       if (!userData) {
         console.log('User not found with NIM:', nim);
-        setError('NIM tidak ditemukan');
+        setError('NIM tidak ditemukan. Pastikan NIM yang Anda masukkan benar.');
         return;
       }
 
@@ -73,7 +73,7 @@ export default function Login() {
         if (authError.message.includes('Invalid login credentials')) {
           setError('NIM atau password salah');
         } else {
-          setError('Terjadi kesalahan saat login');
+          setError('Terjadi kesalahan saat login: ' + authError.message);
         }
         return;
       }
