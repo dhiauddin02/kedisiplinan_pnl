@@ -118,16 +118,29 @@ export default function TambahMahasiswa() {
     try {
       const email = generateEmail(studentData.nama, studentData.nim);
       
-      // Create user in Supabase Auth
-      const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+      // Step 1: Create user in Supabase Auth using signUp
+      const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email,
-        password: studentData.nim, // Use NIM as password
-        email_confirm: true
+        password: studentData.nim, // Use NIM as default password
+        options: {
+          data: {
+            nama: studentData.nama,
+            nim: studentData.nim,
+            role: 'mahasiswa'
+          }
+        }
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        console.error('Auth signup error:', authError);
+        throw authError;
+      }
 
-      // Insert into public.users table
+      if (!authData.user) {
+        throw new Error('No user returned from signup');
+      }
+
+      // Step 2: Insert into public.users table
       const { error: userError } = await supabase
         .from('users')
         .insert({
@@ -143,7 +156,10 @@ export default function TambahMahasiswa() {
           level_user: 0
         });
 
-      if (userError) throw userError;
+      if (userError) {
+        console.error('User insert error:', userError);
+        throw userError;
+      }
 
       return { success: true };
     } catch (error) {
@@ -159,6 +175,18 @@ export default function TambahMahasiswa() {
     if (!formData.nim || !formData.nama || !formData.nama_wali || !formData.no_wa_wali || 
         !formData.nama_dosen_pembimbing || !formData.no_wa_dosen_pembimbing) {
       setMessage({ type: 'error', text: 'Semua field harus diisi' });
+      return;
+    }
+
+    // Check if NIM already exists
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('nim')
+      .eq('nim', formData.nim)
+      .maybeSingle();
+
+    if (existingUser) {
+      setMessage({ type: 'error', text: 'NIM sudah terdaftar dalam sistem' });
       return;
     }
 
@@ -179,7 +207,11 @@ export default function TambahMahasiswa() {
       setShowAddModal(false);
       loadExistingStudents();
     } else {
-      setMessage({ type: 'error', text: 'Gagal menambahkan mahasiswa' });
+      let errorMessage = 'Gagal menambahkan mahasiswa';
+      if (result.error && typeof result.error === 'object' && 'message' in result.error) {
+        errorMessage = result.error.message;
+      }
+      setMessage({ type: 'error', text: errorMessage });
     }
     
     setLoading(false);
@@ -196,6 +228,19 @@ export default function TambahMahasiswa() {
     let errorCount = 0;
 
     for (const student of processedData) {
+      // Check if NIM already exists
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('nim')
+        .eq('nim', student.nim)
+        .maybeSingle();
+
+      if (existingUser) {
+        console.log(`NIM ${student.nim} already exists, skipping...`);
+        errorCount++;
+        continue;
+      }
+
       const result = await createStudentAuth(student);
       if (result.success) {
         successCount++;
@@ -206,7 +251,7 @@ export default function TambahMahasiswa() {
 
     setMessage({ 
       type: successCount > 0 ? 'success' : 'error', 
-      text: `Berhasil menambahkan ${successCount} mahasiswa. ${errorCount > 0 ? `${errorCount} gagal.` : ''}` 
+      text: `Berhasil menambahkan ${successCount} mahasiswa. ${errorCount > 0 ? `${errorCount} gagal atau sudah ada.` : ''}` 
     });
 
     if (successCount > 0) {
@@ -272,9 +317,13 @@ export default function TambahMahasiswa() {
     setLoading(true);
 
     try {
-      // Delete from auth.users (will cascade to public.users)
-      const { error: authError } = await supabase.auth.admin.deleteUser(student.id);
-      if (authError) throw authError;
+      // Delete from public.users (will cascade to auth.users via RLS)
+      const { error } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', student.id);
+
+      if (error) throw error;
 
       setMessage({ type: 'success', text: 'Mahasiswa berhasil dihapus!' });
       loadExistingStudents();
